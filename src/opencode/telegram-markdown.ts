@@ -1,232 +1,300 @@
 /**
  * Markdown to Telegram HTML Converter
- * 
- * Converts GitHub-flavored Markdown from OpenCode responses to Telegram HTML.
- * Telegram HTML is more reliable than MarkdownV2 which requires extensive escaping.
+ *
+ * Converts GitHub-flavored Markdown from OpenCode to Telegram HTML.
+ * Telegram only supports: <b> <i> <s> <u> <code> <pre> <a> <blockquote>
+ *
+ * BUG FIXES vs previous version:
+ *   A - Blockquote / header / list tags were escaped because block-level
+ *       transforms ran BEFORE escapeHtml → output was "&lt;b&gt;" not "<b>".
+ *       Fix: extract code blocks first, escape everything else, THEN apply
+ *       all markdown transforms on the already-escaped text.
+ *   B - Same root cause as A (headers).
+ *   D - Bold/italic regexes matched across newlines ([^*]+ matches \n).
+ *       Fix: use [^*\n]+ and [^_\n]+.
+ *   E - Bold/italic transforms ran after inline code, so **x** inside
+ *       `**x**` got bolded inside the <code> tag.
+ *       Fix: protect <code>/<pre> regions when applying inline transforms.
+ *   F - tableBlockRegex and hasTable were declared but never used.
+ *       Fix: removed dead variables, implemented proper table detection.
+ *   G - Only separator rows (|---|) got the │ replacement; data rows kept |.
+ *       Fix: replace | in ALL table rows (whole detected block at once).
+ *   H - Link hrefs got double-escaped: & → &amp; by escapeHtml, then the
+ *       link regex embedded &amp; in the href attribute.
+ *       Fix: unescape href before embedding so it stays &amp; (valid HTML).
  */
 
-/**
- * Convert Markdown text to Telegram HTML format
- * 
- * Supported conversions:
- * - Code blocks (```lang...```) → <pre><code class="language-X">...</code></pre>
- * - Inline code (`code`) → <code>code</code>
- * - Bold (**text** or __text__) → <b>text</b>
- * - Italic (*text* or _text_) → <i>text</i>
- * - Strikethrough (~~text~~) → <s>text</s>
- * - Links [text](url) → <a href="url">text</a>
- * - Headers (# text) → <b>text</b> (Telegram doesn't support headers)
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function markdownToTelegramHtml(markdown: string): string {
   if (!markdown) return ""
 
-  let result = markdown
+  // ── Step 1: Pull all code blocks out so nothing touches them ──────────────
+  const { text: noCode, blocks } = extractCodeBlocks(markdown)
 
-  // First, escape HTML entities in the source (before any conversion)
-  // We need to be careful to only escape in non-code regions
-  result = escapeHtmlPreservingCode(result)
+  // ── Step 2: HTML-escape everything that remains ──────────────────────────
+  let result = escapeHtml(noCode)
 
-  // Convert fenced code blocks (```lang\ncode\n```)
-  // Must be done before inline code to avoid conflicts
-  result = result.replace(
-    /```(\w*)\n([\s\S]*?)```/g,
-    (_, lang, code) => {
-      // Unescape the code content since it was escaped above
-      const unescapedCode = unescapeHtml(code.trim())
-      // Re-escape just the code content for HTML
-      const escapedCode = escapeHtml(unescapedCode)
-      if (lang) {
-        return `<pre><code class="language-${lang}">${escapedCode}</code></pre>`
-      }
-      return `<pre>${escapedCode}</pre>`
-    }
-  )
+  // ── Step 3: Block-level transforms (order matters) ───────────────────────
+  result = convertBlockquotes(result)   // Fix A: now runs on escaped text, no re-escape
+  result = convertHeaders(result)       // Fix B: same
+  result = convertHorizontalRules(result)
+  result = convertTables(result)        // Fix F, G: proper table detection
+  result = convertLists(result)
 
-  // Convert inline code (`code`) - be careful not to match inside <pre> blocks
-  result = convertInlineCode(result)
+  // ── Step 4: Inline transforms ─────────────────────────────────────────────
+  // Fix E: inline code runs FIRST so bold/italic don't fire inside backticks.
+  // Bold/italic use applyOutsideCodeTags which skips <code>…</code> content.
+  result = convertInlineCode(result)    // must be before bold/italic
+  result = convertBold(result)
+  result = convertItalic(result)
+  result = convertStrikethrough(result)
+  result = convertLinks(result)
 
-  // Convert bold (**text** or __text__)
-  result = result.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
-  result = result.replace(/__([^_]+)__/g, "<b>$1</b>")
-
-  // Convert italic (*text* or _text_) - must come after bold
-  // Be careful not to match underscores in the middle of words
-  result = result.replace(/(?<![*\w])\*([^*]+)\*(?![*\w])/g, "<i>$1</i>")
-  result = result.replace(/(?<![_\w])_([^_]+)_(?![_\w])/g, "<i>$1</i>")
-
-  // Convert strikethrough (~~text~~)
-  result = result.replace(/~~([^~]+)~~/g, "<s>$1</s>")
-
-  // Convert links [text](url)
-  result = result.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2">$1</a>'
-  )
-
-  // Convert headers (# Header) to bold - Telegram doesn't support headers
-  result = result.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>")
-
-  // Convert blockquotes (> text)
-  result = result.replace(/^>\s+(.+)$/gm, "<blockquote>$1</blockquote>")
+  // ── Step 5: Restore code blocks ──────────────────────────────────────────
+  result = restoreCodeBlocks(result, blocks)
 
   return result
 }
 
 /**
- * Escape HTML entities, but preserve code blocks
+ * Truncate HTML to Telegram's 4096-char limit, closing unclosed tags.
  */
-function escapeHtmlPreservingCode(text: string): string {
-  // Split by code blocks, escape non-code parts, then rejoin
-  const parts: string[] = []
-  let lastIndex = 0
-  
-  // Match both fenced code blocks and inline code
-  const codeBlockRegex = /```[\s\S]*?```|`[^`]+`/g
-  let match: RegExpExecArray | null
+export function truncateForTelegram(html: string, maxLength = 4000): string {
+  if (html.length <= maxLength) return html
 
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    // Escape the part before this code block
-    if (match.index > lastIndex) {
-      parts.push(escapeHtml(text.slice(lastIndex, match.index)))
+  let truncateAt = maxLength
+  const tagStart = html.lastIndexOf("<", maxLength)
+  const tagEnd   = html.lastIndexOf(">", maxLength)
+  if (tagStart > tagEnd) truncateAt = tagStart
+
+  let truncated = html.slice(0, truncateAt)
+
+  // Close any unclosed HTML tags in reverse
+  const openTags: string[] = []
+  const tagRe = /<(\/?)(b|i|s|u|code|pre|a|blockquote)\b[^>]*>/gi
+  let m: RegExpExecArray | null
+  while ((m = tagRe.exec(truncated)) !== null) {
+    if (m[1] === "/") {
+      const idx = openTags.lastIndexOf(m[2].toLowerCase())
+      if (idx !== -1) openTags.splice(idx, 1)
+    } else {
+      openTags.push(m[2].toLowerCase())
     }
-    // Keep the code block as-is (will be processed later)
-    parts.push(match[0])
-    lastIndex = match.index + match[0].length
+  }
+  for (let i = openTags.length - 1; i >= 0; i--) {
+    truncated += `</${openTags[i]}>`
   }
 
-  // Escape any remaining text after the last code block
-  if (lastIndex < text.length) {
-    parts.push(escapeHtml(text.slice(lastIndex)))
-  }
+  return truncated + "…"
+}
 
-  return parts.join("")
+export function containsMarkdown(text: string): boolean {
+  return [
+    /```/, /`[^`]+`/, /\*\*[^*]+\*\*/, /__[^_]+__/,
+    /\*[^*\n]+\*/, /~~[^~]+~~/, /\[[^\]]+\]\([^)]+\)/,
+    /^#{1,6}\s/m, /^\s*[-*+]\s/m, /^\s*\d+\.\s/m, /^\|.+\|/m,
+  ].some(p => p.test(text))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Code block extraction / restoration
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface CodeBlock { placeholder: string; html: string }
+
+/**
+ * Replace fenced code blocks with NUL-delimited placeholders.
+ * Handles: ```lang\ncode\n```  and  ```lang code``` (no newline).
+ */
+function extractCodeBlocks(text: string): { text: string; blocks: CodeBlock[] } {
+  const blocks: CodeBlock[] = []
+  const result = text.replace(/```(\w*)[^\S\r\n]?([\s\S]*?)```/g, (_, lang: string, code: string) => {
+    const escaped = escapeHtml(code.trim())
+    const html = lang
+      ? `<pre><code class="language-${escapeHtml(lang)}">${escaped}</code></pre>`
+      : `<pre>${escaped}</pre>`
+    const placeholder = `\x00BLOCK${blocks.length}\x00`
+    blocks.push({ placeholder, html })
+    return placeholder
+  })
+  return { text: result, blocks }
+}
+
+function restoreCodeBlocks(text: string, blocks: CodeBlock[]): string {
+  let result = text
+  for (const b of blocks) result = result.replace(b.placeholder, b.html)
+  return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Block-level transforms  (run on already-HTML-escaped text)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fix A: blockquotes now run on escaped text. The `>` from markdown became
+ * `&gt;` during escaping, so we match `&gt;` here.
+ */
+function convertBlockquotes(text: string): string {
+  return text.replace(
+    /((?:^[ \t]*&gt;[^\n]*\n?)+)/gm,
+    (block) => {
+      const inner = block.replace(/^[ \t]*&gt;\s?/gm, "").trim()
+      return `<blockquote>${inner}</blockquote>\n`
+    }
+  )
+}
+
+/** Fix B: headers also run after escaping, so <b> won't be double-escaped. */
+function convertHeaders(text: string): string {
+  return text.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>")
+}
+
+function convertHorizontalRules(text: string): string {
+  return text.replace(/^(?:---+|===+|\*\*\*+)[ \t]*$/gm, "──────────────")
 }
 
 /**
- * Convert inline code while avoiding already-converted <pre> blocks
+ * Fix F + G: detect full table blocks (header row + separator + data rows),
+ * replace ALL pipes in the block with │, then wrap in <pre>.
+ */
+function convertTables(text: string): string {
+  // A valid table has at least one separator row: |---|  or  |:--:|
+  // We match multi-line blocks where all lines start and end with |
+  return text.replace(
+    /((?:^[ \t]*\|[^\n]+\|[ \t]*\n)+)/gm,
+    (block) => {
+      // Only treat as table if there's at least one separator row
+      if (!/^\|[\s\-:|]+\|/m.test(block)) return block
+
+      const lines = block.trim().split("\n")
+      const rows: string[][] = []
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        // Skip separator rows
+        if (/^[\|\-\:\s]+$/.test(trimmed)) continue
+        const cells = trimmed.slice(1, trimmed.endsWith("|") ? -1 : undefined)
+          .split("|").map(c => c.trim())
+        rows.push(cells)
+      }
+
+      if (rows.length === 0) return block
+
+      const colCount = Math.max(...rows.map(r => r.length))
+      const widths = Array.from({ length: colCount }, (_, i) =>
+        Math.max(...rows.map(r => (r[i] ?? "").length), 3)
+      )
+
+      const rendered = rows.map((row, ri) => {
+        const cells = Array.from({ length: colCount }, (_, i) =>
+          (row[i] ?? "").padEnd(widths[i])
+        ).join("  ")
+        return ri === 0
+          ? cells + "\n" + widths.map(w => "─".repeat(w)).join("  ")
+          : cells
+      })
+
+      return `<pre>${rendered.join("\n")}</pre>\n`
+    }
+  )
+}
+
+function convertLists(text: string): string {
+  // Unordered
+  text = text.replace(/^([ \t]*)[-*+]\s+(.+)$/gm, (_m, indent: string, content: string) => {
+    const depth = Math.floor(indent.replace(/\t/g, "  ").length / 2)
+    const bullet = ["•", "◦", "▸"][Math.min(depth, 2)]
+    return `${"  ".repeat(depth)}${bullet} ${content}`
+  })
+  // Ordered — already readable as-is; no transform needed
+  return text
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inline transforms  (protect existing HTML tags)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Apply fn to text outside any HTML tag (opening/closing tags skipped).
+ * Used for inline-code conversion only.
+ */
+function applyOutsideTags(text: string, fn: (s: string) => string): string {
+  return text.replace(/(<!--[\s\S]*?-->|<[^>]+>|\x00BLOCK\d+\x00|[^<\x00]+)/g, (chunk) => {
+    if (chunk.startsWith("<") || chunk.startsWith("\x00")) return chunk
+    return fn(chunk)
+  })
+}
+
+/**
+ * Apply fn to text outside any HTML tag AND outside <code>…</code> / <pre>…</pre> content.
+ * Fix E: prevents bold/italic from firing inside inline code that was already converted.
+ */
+function applyOutsideCodeTags(text: string, fn: (s: string) => string): string {
+  return text.replace(
+    /(<(?:code|pre)\b[^>]*>[\s\S]*?<\/(?:code|pre)>|<[^>]+>|\x00BLOCK\d+\x00|[^<\x00]+)/g,
+    (chunk) => {
+      if (chunk.startsWith("<") || chunk.startsWith("\x00")) return chunk
+      return fn(chunk)
+    }
+  )
+}
+
+/** Fix D: [^*\n]+ prevents bold from spanning newlines. */
+function convertBold(text: string): string {
+  return applyOutsideCodeTags(text, s =>
+    s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+     .replace(/__([^_\n]+)__/g, "<b>$1</b>")
+  )
+}
+
+/** Fix D: [^*\n]+ and [^_\n]+ prevent italic from spanning newlines. */
+function convertItalic(text: string): string {
+  return applyOutsideCodeTags(text, s =>
+    s.replace(/(?<![*\w])\*([^*\n]+)\*(?![*\w])/g, "<i>$1</i>")
+     .replace(/(?<![_\w])_([^_\n]+)_(?![_\w])/g, "<i>$1</i>")
+  )
+}
+
+function convertStrikethrough(text: string): string {
+  return applyOutsideCodeTags(text, s =>
+    s.replace(/~~([^~\n]+)~~/g, "<s>$1</s>")
+  )
+}
+
+/**
+ * Fix H: the href was HTML-escaped (& → &amp;).  We embed it as-is since
+ * &amp; is the correct form inside an HTML attribute value.
+ */
+function convertLinks(text: string): string {
+  return applyOutsideCodeTags(text, s =>
+    s.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (_m, linkText: string, href: string) =>
+      `<a href="${href}">${linkText}</a>`
+    )
+  )
+}
+
+/**
+ * Fix E: runs before bold/italic so backtick content is wrapped in <code>
+ * before bold/italic get a chance to match inside it.
  */
 function convertInlineCode(text: string): string {
-  const parts: string[] = []
-  let lastIndex = 0
-
-  // Find all <pre>...</pre> blocks to skip
-  const preBlockRegex = /<pre>[\s\S]*?<\/pre>/g
-  let match: RegExpExecArray | null
-
-  while ((match = preBlockRegex.exec(text)) !== null) {
-    // Process the part before this pre block
-    if (match.index > lastIndex) {
-      const beforePre = text.slice(lastIndex, match.index)
-      // Convert inline code in this part
-      parts.push(beforePre.replace(/`([^`]+)`/g, (_, code) => {
-        const unescapedCode = unescapeHtml(code)
-        return `<code>${escapeHtml(unescapedCode)}</code>`
-      }))
-    }
-    // Keep the pre block as-is
-    parts.push(match[0])
-    lastIndex = match.index + match[0].length
-  }
-
-  // Process any remaining text after the last pre block
-  if (lastIndex < text.length) {
-    const remaining = text.slice(lastIndex)
-    parts.push(remaining.replace(/`([^`]+)`/g, (_, code) => {
-      const unescapedCode = unescapeHtml(code)
-      return `<code>${escapeHtml(unescapedCode)}</code>`
-    }))
-  }
-
-  return parts.join("")
+  return applyOutsideTags(text, s =>
+    s.replace(/`([^`\n]+)`/g, (_m, code: string) => `<code>${code}</code>`)
+  )
 }
 
-/**
- * Escape HTML special characters
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// HTML utilities
+// ─────────────────────────────────────────────────────────────────────────────
+
 function escapeHtml(text: string): string {
+  if (!text) return ""
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-}
-
-/**
- * Unescape HTML entities
- */
-function unescapeHtml(text: string): string {
-  return text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-}
-
-/**
- * Truncate text for Telegram's 4096 character limit
- * Preserves complete HTML tags at truncation point
- */
-export function truncateForTelegram(html: string, maxLength = 4000): string {
-  if (html.length <= maxLength) return html
-
-  // Find a safe truncation point (not in the middle of a tag)
-  let truncateAt = maxLength
-  
-  // Look for the last complete tag before maxLength
-  const tagStart = html.lastIndexOf("<", maxLength)
-  const tagEnd = html.lastIndexOf(">", maxLength)
-  
-  if (tagStart > tagEnd) {
-    // We're in the middle of a tag, truncate before it
-    truncateAt = tagStart
-  }
-
-  // Truncate and add ellipsis
-  let truncated = html.slice(0, truncateAt)
-  
-  // Close any unclosed tags (simple check for common tags)
-  const openTags: string[] = []
-  const tagRegex = /<(\/?)(pre|code|b|i|s|a|blockquote)[^>]*>/gi
-  let tagMatch: RegExpExecArray | null
-  
-  while ((tagMatch = tagRegex.exec(truncated)) !== null) {
-    const isClosing = tagMatch[1] === "/"
-    const tagName = tagMatch[2].toLowerCase()
-    
-    if (isClosing) {
-      // Remove the matching open tag
-      const idx = openTags.lastIndexOf(tagName)
-      if (idx !== -1) {
-        openTags.splice(idx, 1)
-      }
-    } else {
-      openTags.push(tagName)
-    }
-  }
-
-  // Close unclosed tags in reverse order
-  for (let i = openTags.length - 1; i >= 0; i--) {
-    truncated += `</${openTags[i]}>`
-  }
-
-  return truncated + "..."
-}
-
-/**
- * Check if text appears to contain Markdown formatting
- */
-export function containsMarkdown(text: string): boolean {
-  // Check for common Markdown patterns
-  const patterns = [
-    /```/,           // Code blocks
-    /`[^`]+`/,       // Inline code
-    /\*\*[^*]+\*\*/, // Bold
-    /__[^_]+__/,     // Bold alt
-    /\*[^*]+\*/,     // Italic
-    /~~[^~]+~~/,     // Strikethrough
-    /\[[^\]]+\]\([^)]+\)/, // Links
-    /^#{1,6}\s/m,    // Headers
-  ]
-  
-  return patterns.some(pattern => pattern.test(text))
 }

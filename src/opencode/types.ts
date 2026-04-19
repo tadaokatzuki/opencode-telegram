@@ -399,6 +399,7 @@ export interface StreamingState {
     startedAt: Date
     completedAt?: Date
     title?: string
+    args?: Record<string, unknown>  // Arguments passed to the tool
   }>
   
   /** When streaming started */
@@ -421,6 +422,9 @@ export interface StreamingState {
     providerID: string
     modelID: string
   }
+  
+  /** Reasoning/thinking from the model */
+  reasoning?: string
   
   /** Flag to prevent duplicate message sends */
   pendingSend?: boolean
@@ -472,6 +476,15 @@ export interface StreamHandlerConfig {
   
   /** Whether to delete progress message on completion */
   deleteProgressOnComplete: boolean
+  
+  /** Callback for debug/detailed process logs */
+  debugCallback?: (text: string) => void | Promise<void>
+  
+  /** Chat ID for debug topic */
+  chatId?: number
+  
+  /** Whether to send progress updates to main topic (false = only show final response) */
+  sendProgressToMainTopic?: boolean
 }
 
 /**

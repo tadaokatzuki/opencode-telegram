@@ -14,6 +14,7 @@
 
 import { loadConfig, validateConfig, printConfig } from "./config"
 import { createIntegratedApp } from "./integration"
+import { mkdir } from "fs/promises"
 
 // =============================================================================
 // Main
@@ -21,7 +22,7 @@ import { createIntegratedApp } from "./integration"
 
 async function main() {
   console.log("=".repeat(60))
-  console.log("  Telegram OpenCode Orchestrator")
+  console.log("  🤖 Orchestrator BOT (Multi-Topic - Forum Topics)")
   console.log("=".repeat(60))
 
   // Load configuration
@@ -33,7 +34,7 @@ async function main() {
     console.error(error instanceof Error ? error.message : String(error))
     console.error("\nMake sure you have set the required environment variables.")
     console.error("See .env.example for reference.")
-    process.exit(1)
+    process.exit(1) // Error de inicialización -，必须 salir
   }
 
   // Validate configuration
@@ -43,7 +44,7 @@ async function main() {
     for (const error of validation.errors) {
       console.error(`  - ${error}`)
     }
-    process.exit(1)
+    process.exit(1) // Config inválida - 必须 salir
   }
 
   // Print configuration (with sensitive values masked)
@@ -51,7 +52,7 @@ async function main() {
 
   // Ensure data directory exists
   try {
-    await Bun.$`mkdir -p ./data`.quiet()
+    await mkdir("./data", { recursive: true })
   } catch {
     // Ignore errors
   }
@@ -63,7 +64,13 @@ async function main() {
   } catch (error) {
     console.error("\n[Error] Failed to initialize application:")
     console.error(error instanceof Error ? error.message : String(error))
-    process.exit(1)
+    process.exit(1) // Error de inicialización - 必须 salir
+  }
+
+  // Check app was created
+  if (!app) {
+    console.error("\n[Error] App not initialized properly")
+    process.exit(1) // Error de inicialización - 必须 salir
   }
 
   // Set up graceful shutdown
@@ -76,12 +83,14 @@ async function main() {
     console.log(`\n[${signal}] Shutting down gracefully...`)
     
     try {
-      await app?.stop()
+      if (app) {
+        await app.stop()
+      }
       console.log("[Shutdown] Complete")
-      process.exit(0)
+      return // No process.exit() - dejar que Bun termine naturalmente
     } catch (error) {
       console.error("[Shutdown] Error:", error)
-      process.exit(1)
+      return
     }
   }
 
@@ -106,12 +115,12 @@ async function main() {
   } catch (error) {
     console.error("\n[Error] Failed to start application:")
     console.error(error instanceof Error ? error.message : String(error))
-    process.exit(1)
+    return // No process.exit()
   }
 }
 
 // Run
 main().catch((error) => {
   console.error("[Fatal]", error)
-  process.exit(1)
+  // No process.exit() - dejar que Bun maneje el error
 })

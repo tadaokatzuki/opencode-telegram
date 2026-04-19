@@ -38,6 +38,7 @@ import {
 } from "./opencode"
 import type { IOpenCodeClient, ResponseHandler, ForumMessageContext, MessageRouteResult } from "./types/forum"
 import { ApiServer, createApiServer } from "./api-server"
+import { mkdir } from "fs/promises"
 
 // =============================================================================
 // Types
@@ -88,6 +89,10 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
   // Create the grammY bot
   const bot = new Bot(config.telegram.botToken)
 
+  // Setup Telegram alerts for errors
+  const { setupTelegramAlerts } = await import("./utils/logger")
+  setupTelegramAlerts(bot.api, config.telegram.chatId)
+
   // Create instance manager (orchestrator)
   const instanceManager = new InstanceManager(toManagerConfig(config))
 
@@ -100,8 +105,22 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
   // Map of sessionId → instanceId for reverse lookup
   const sessionToInstance = new Map<string, string>()
 
+  // === ANTI-LOOP PROTECTION ===
+  const MAX_TOOLS = 10           // Max tool calls per session
+  const MAX_THINKING = 8         // Max thinking events before abort
+  const HARD_TIMEOUT_MS = 600000 // 10 min hard timeout (increased from 5 min)
+  const WARNING_TIMEOUT_MS = 180000 // Warning at 3 min
+  const sessionToolCounts = new Map<string, number>()
+  const sessionThinkingCounts = new Map<string, number>()
+  const sessionTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const sessionWarningTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
   // Rate limit state for Telegram API
   let rateLimitedUntil = 0
+  const RATE_LIMIT_WINDOW_MS = 300000 // 5 minutes
+  const RATE_LIMIT_MAX_MESSAGES = 60 // 60 messages per window
+  let messageCountInWindow = 0
+  let windowStartTime = Date.now()
 
   // Stale topic cleanup timer
   let staleCleanupTimer: ReturnType<typeof setInterval> | null = null
@@ -110,9 +129,27 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
   const sendCallback: TelegramSendCallback = async (chatId, topicId, text, options) => {
     // Check if we're currently rate limited
     const now = Date.now()
+    
+    // Reset window if expired
+    if (now - windowStartTime >= RATE_LIMIT_WINDOW_MS) {
+      messageCountInWindow = 0
+      windowStartTime = now
+    }
+    
+    // Check message count limit
+    if (messageCountInWindow >= RATE_LIMIT_MAX_MESSAGES) {
+      const waitTime = RATE_LIMIT_WINDOW_MS - (now - windowStartTime)
+      if (waitTime > 0) {
+        console.log(`[Integration] Rate limited by message count, waiting ${waitTime}ms`)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+        messageCountInWindow = 0
+        windowStartTime = Date.now()
+      }
+    }
+    
+    // Check time-based rate limit
     if (now < rateLimitedUntil) {
       const waitTime = rateLimitedUntil - now
-      // For edits, just throw immediately - stream handler will skip
       if (options?.editMessageId) {
         throw new Error(`Rate limited for ${waitTime}ms`)
       }
@@ -146,6 +183,7 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
               reply_to_message_id: options?.replyToMessageId,
               reply_markup,
             })
+            messageCountInWindow++
             return { messageId: result.message_id }
           } catch (error) {
             lastError = error instanceof Error ? error : new Error(String(error))
@@ -200,13 +238,27 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     }
   }
 
-  // Create stream handler
-  // Note: updateIntervalMs set to 2000ms to stay well within Telegram's rate limits
-  // Telegram allows ~30 messages/second to a group, but edits to same message are more restricted
+  // Debug callback - sends process info to debug topic
+  const debugCallback = async (text: string) => {
+    if (!config.telegram.debugTopicId) return
+    try {
+      await bot.api.sendMessage(config.telegram.chatId, text, {
+        message_thread_id: config.telegram.debugTopicId,
+        parse_mode: "HTML",
+      })
+    } catch (e) {
+      // Ignore debug errors
+    }
+  }
+
+  // Create stream handler with debug callback and NO progress to main topic
   const streamHandler = new StreamHandler(sendCallback, deleteCallback, {
     updateIntervalMs: 2000,
     showToolNames: true,
     deleteProgressOnComplete: true,
+    debugCallback,
+    chatId: config.telegram.chatId,
+    sendProgressToMainTopic: false,  // Only show final response in main topic
   })
 
   // Create topic store for direct access
@@ -375,7 +427,7 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
         
         // Instance is ready - create client and subscribe to SSE
         const client = new OpenCodeClient({
-          baseUrl: `http://localhost:${event.port}`,
+          baseUrl: `http://127.0.0.1:${event.port}`,
         })
         clients.set(event.instanceId, client)
 
@@ -452,9 +504,73 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
           }
         }
 
-        // Subscribe to SSE events
+        // Subscribe to SSE events with ANTI-LOOP protection
         const abort = client.subscribe(
           (sseEvent: SSEEvent) => {
+            // === FILTRAR EVENTOS LSP ===
+            if (sseEvent.type.startsWith("lsp.")) {
+              return // Ignorar eventos LSP
+            }
+
+            // === ANTI-LOOP: Buscar sessionId del evento ===
+            const props = sseEvent.properties as Record<string, any>
+            const eventSessionId = 
+              props.sessionID || 
+              props.info?.sessionID || 
+              props.part?.sessionID || 
+              sessionId // fallback al sessionId de la instancia
+
+            // Get instance for topic lookup
+            const eventInstance = instanceManager.getInstance(event.instanceId)
+
+            // === ANTI-LOOP: Detectar y abortar ===
+            if (eventSessionId) {
+              // Hard timeout with warning at 3 min
+              if (!sessionTimers.has(eventSessionId)) {
+                // Warning timer at 3 min
+                const warningTimer = setTimeout(async () => {
+                  console.log(`[AntiLoop] Warning timeout, sending update for ${eventSessionId}`)
+                  await sendToTopic(bot, config.telegram.chatId, eventInstance?.config.topicId || 0, 
+                    "⏳ Sigo trabajando... paciencia por favor.").catch(() => {})
+                }, WARNING_TIMEOUT_MS)
+                
+                // Hard timeout at 10 min
+                const timer = setTimeout(async () => {
+                  console.log(`[AntiLoop] HARD TIMEOUT reached for ${eventSessionId}`)
+                  clearTimeout(warningTimer)
+                  client.close()
+                  await sendToTopic(bot, config.telegram.chatId, eventInstance?.config.topicId || 0, 
+                    "⚠️ Tiempo máximo excedido (10 min). Intenta algo más específico.").catch(() => {})
+                }, HARD_TIMEOUT_MS)
+                
+                sessionTimers.set(eventSessionId, timer)
+              }
+
+              // Contador de tools - SOLO contar tool.execute (no message.part.updated que se dispara por cada token)
+              if (sseEvent.type === "tool.execute") {
+                const toolCount = (sessionToolCounts.get(eventSessionId) || 0) + 1
+                sessionToolCounts.set(eventSessionId, toolCount)
+                console.log(`[AntiLoop] Tool #${toolCount}/${MAX_TOOLS} for ${eventSessionId.slice(0,8)}`)
+                if (toolCount > MAX_TOOLS) {
+                  console.log(`[AntiLoop] MAX TOOLS REACHED, aborting`)
+                  const timer = sessionTimers.get(eventSessionId)
+                  if (timer) clearTimeout(timer)
+                  client.close()
+                  sendToTopic(bot, config.telegram.chatId, eventInstance?.config.topicId || 0, 
+                    "⚠️ Demasiadas herramientas (límite: 10). Intenta algo más específico.").catch(() => {})
+                  return
+                }
+              }
+
+              // Contador de thinking - SOLO contar session.updated con status=running (inicio de sesión)
+              // No contar message.part.updated porque eso se dispara por cada chunk de texto
+              if (sseEvent.type === "session.updated" && (sseEvent.properties as any).status === "running") {
+                // Nueva sesión iniciada, resetear contadores
+                sessionThinkingCounts.set(eventSessionId, 0)
+                sessionToolCounts.set(eventSessionId, 0)
+              }
+            }
+
             console.log(`[Integration] SSE event: ${sseEvent.type}`, JSON.stringify(sseEvent.properties).slice(0, 200))
             streamHandler.handleEvent(sseEvent)
             
@@ -490,6 +606,20 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
         // Clean up session mapping
         for (const [sessionId, instId] of sessionToInstance) {
           if (instId === event.instanceId) {
+            // Limpiar contadores anti-loop
+            sessionToolCounts.delete(sessionId)
+            sessionThinkingCounts.delete(sessionId)
+            const timer = sessionTimers.get(sessionId)
+            if (timer) {
+              clearTimeout(timer)
+              sessionTimers.delete(sessionId)
+            }
+            // Clean up any pending warning timers
+            const warningTimer = sessionWarningTimers.get(sessionId)
+            if (warningTimer) {
+              clearTimeout(warningTimer)
+              sessionWarningTimers.delete(sessionId)
+            }
             sessionToInstance.delete(sessionId)
             break
           }
@@ -538,7 +668,7 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     const effectiveTopicId = context.isGeneralTopic ? 0 : topicId
 
     // Check if this topic is linked to an external OpenCode instance
-    if (apiServer.isExternalTopic(effectiveTopicId)) {
+    if (apiServer?.isExternalTopic(effectiveTopicId)) {
       const external = apiServer.getExternalByTopic(effectiveTopicId)
       if (external?.sessionId) {
         // Mark this message as coming from Telegram so we don't echo it back
@@ -578,9 +708,9 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
             if (abort) {
               abort()
               sseSubscriptions.delete(discoveredKey)
+              clients.delete(discoveredKey)
             }
             discoveredClient.close()
-            clients.delete(discoveredKey)
             streamHandler.unregisterSession(mapping.sessionId)
             
             // Try to auto-reconnect: discover TUI sessions in the same directory
@@ -599,9 +729,10 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
                 baseUrl: `http://localhost:${reconnectSession.instance.port}`,
               })
               
-              // Subscribe to SSE events
+              // Subscribe to SSE events (skip LSP events)
               const newAbort = newClient.subscribe(
                 (sseEvent: SSEEvent) => {
+                  if (sseEvent.type.startsWith("lsp.")) return
                   console.log(`[Integration] SSE event from reconnected session:`, sseEvent.type)
                   streamHandler.handleEvent(sseEvent)
                 },
@@ -669,7 +800,120 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     // Special case: General topic (topicId=0) uses /tmp for direct OpenCode conversations
     const workDir = mapping?.workDir || (effectiveTopicId === 0 ? "/tmp" : `${config.project.basePath}/${topicName}`)
 
-    // Before creating a managed instance, check if there's an existing TUI we can connect to
+    // PRIORITY: If external port is configured (4096), use it ALWAYS
+    // Only if the port is in the allowed whitelist (security measure)
+    const externalPort = config.opencode.externalPort
+    const allowedPorts = config.opencode.allowedExternalPorts || [4096]
+    
+    if (externalPort > 0 && allowedPorts.includes(externalPort)) {
+      console.log(`[Integration] ⚡ Using external OpenCode on port ${externalPort}`)
+      try {
+        const externalClient = new OpenCodeClient({
+          baseUrl: `http://localhost:${externalPort}`,
+        })
+        
+        const health = await externalClient.isHealthy()
+        if (health) {
+          console.log(`[Integration] ✅ External ready`)
+          
+          // Simple: list sessions, use first one or create new
+          const sessions = await externalClient.listSessions()
+          let sessionId = sessions[0]?.id 
+          
+          if (!sessionId) {
+            const ns = await externalClient.createSession()
+            sessionId = ns.id
+          }
+          
+          if (sessionId) {
+            const externalKey = `external_${effectiveTopicId}`
+
+            // Bug fix: check if ANY existing SSE already connects to this same OpenCode instance.
+            // Different topics (e.g. General=0 and topic=1652) use different externalKeys but
+            // talk to the same OpenCode process → two SSE connections → duplicate responses.
+            const sameBaseUrl = externalClient.baseUrl
+            const existingKeyForSession = Array.from(sseSubscriptions.keys()).find(k =>
+              k.startsWith("external_") && clients.get(k)?.baseUrl === sameBaseUrl
+            )
+
+            if (existingKeyForSession && existingKeyForSession !== externalKey) {
+              // Already subscribed via a different topic key.
+              // Just update the destination so the response goes to the right topic.
+              console.log(`[Integration] Reusing existing SSE (${existingKeyForSession}) for ${externalKey}`)
+              streamHandler.registerSession(sessionId, chatId, effectiveTopicId, mapping?.streamingEnabled ?? false)
+              streamHandler.markMessageFromTelegram(sessionId, text)
+              externalClient.sendMessageAsync(sessionId, text).catch(e => console.error(`[Integration] Send error: ${e}`))
+              return { success: true, sessionId }
+            }
+
+            // Clean up stale subscription under the same key (same topic, new request)
+            const existingAbort = sseSubscriptions.get(externalKey)
+            if (existingAbort) {
+              console.log(`[Integration] Cleaning up existing SSE for ${externalKey}`)
+              existingAbort()
+              sseSubscriptions.delete(externalKey)
+              clients.delete(externalKey)
+            }
+
+            const sendDebug = (msg: string) => {
+              if (!config.telegram.debugTopicId) return
+              bot.api.sendMessage(config.telegram.chatId, msg, {
+                message_thread_id: config.telegram.debugTopicId,
+                parse_mode: "HTML",
+              }).catch(() => {})
+            }
+
+            const abort = externalClient.subscribe(
+              (sseEvent) => {
+                if (sseEvent.type.startsWith("lsp.")) return
+                streamHandler.handleEvent(sseEvent)
+
+                if (!config.telegram.debugTopicId) return
+                const props = sseEvent.properties as any
+                switch (sseEvent.type) {
+                  case "tool.execute": {
+                    const tool = props.tool || "unknown"
+                    const args = props.args
+                    let ctx = ""
+                    if (args?.path) ctx = ` - ${args.path.split('/').slice(-2).join('/')}`
+                    else if (args?.command) ctx = ` - ${args.command.split(' ').slice(0, 3).join(' ')}`
+                    else if (args?.pattern) ctx = ` - "${String(args.pattern).slice(0, 30)}"`
+                    sendDebug(`🔧 <b>${tool}</b>${ctx}`)
+                    break
+                  }
+                  case "tool.result": {
+                    const tool = props.tool || "unknown"
+                    const title = props.title ? ` - ${String(props.title).slice(0, 40)}` : ""
+                    sendDebug(`✅ <b>${tool}</b>${title}`)
+                    break
+                  }
+                  case "session.idle":
+                    sendDebug(`🏁 <b>Completed</b>`)
+                    break
+                  case "session.error":
+                    sendDebug(`❌ <b>Error:</b> ${props.error || "Unknown error"}`)
+                    break
+                  // Ignore high-frequency / non-informative events
+                }
+              },
+              (error) => console.error(`[Integration] SSE error:`, error)
+            )
+            sseSubscriptions.set(externalKey, abort)
+            clients.set(externalKey, externalClient)
+
+            streamHandler.registerSession(sessionId, chatId, effectiveTopicId, mapping?.streamingEnabled ?? false)
+            streamHandler.markMessageFromTelegram(sessionId, text)
+            externalClient.sendMessageAsync(sessionId, text).catch(e => console.error(`[Integration] Send error: ${e}`))
+
+            return { success: true, sessionId }
+          }
+        }
+      } catch (e) {
+        console.log(`[Integration] External error: ${e}`)
+      }
+    }
+    
+    // BEFORE searching for TUI, try external (already done above)
     // This handles the case where:
     // 1. User connected to a discovered session via /connect
     // 2. The TUI was closed
@@ -689,10 +933,11 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
           baseUrl: `http://localhost:${existingSession.instance.port}`,
         })
         
-        // Subscribe to SSE events
+        // Subscribe to SSE events (skip LSP events)
         const discoveredKey = `discovered_${effectiveTopicId}`
         const newAbort = newClient.subscribe(
           (sseEvent: SSEEvent) => {
+            if (sseEvent.type.startsWith("lsp.")) return
             console.log(`[Integration] SSE event from reconnected TUI:`, sseEvent.type)
             streamHandler.handleEvent(sseEvent)
           },
@@ -738,27 +983,27 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
       }
     }
 
-    // Ensure directory exists (only for non-linked directories)
+// Ensure directory exists (only for non-linked directories)
     if (!mapping?.workDir && config.project.autoCreateDirs) {
       try {
-        await Bun.$`mkdir -p ${workDir}`.quiet()
-      } catch {
-        // Ignore errors
+        await mkdir(workDir, { recursive: true })
+      } catch (error) {
+        console.error(`[Integration] Failed to create directory ${workDir}:`, error)
       }
     }
-
+    
     const instance = await instanceManager.getOrCreateInstance(effectiveTopicId, workDir, {
       name: topicName,
     })
 
     if (!instance) {
-      await sendToTopic(bot, chatId, effectiveTopicId, "Failed to start OpenCode instance. Please try again.")
+      await sendToTopic(bot, chatId, effectiveTopicId, "❌ Error: No se pudo crear la instancia de OpenCode. Por favor intenta más tarde.")
       return { success: false, error: "Failed to create instance" }
     }
 
     // Wait for instance to be ready
     if (instance.state !== "running") {
-      await sendToTopic(bot, chatId, effectiveTopicId, "Starting OpenCode instance...")
+      await sendToTopic(bot, chatId, effectiveTopicId, "⏳ Iniciando OpenCode...")
       
       // Wait up to 30 seconds for instance to be ready
       const startTime = Date.now()
@@ -768,7 +1013,7 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
           break
         }
         if (current?.state === "failed" || current?.state === "crashed") {
-          await sendToTopic(bot, chatId, effectiveTopicId, `Failed to start instance: ${current.lastError}`)
+          await sendToTopic(bot, chatId, effectiveTopicId, `❌ Error al iniciar OpenCode: ${current.lastError || "Error desconocido"}\n\nIntenta más tarde o reinicia el bot.`)
           return { success: false, error: current.lastError }
         }
         await new Promise((r) => setTimeout(r, 500))
@@ -776,11 +1021,36 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     }
 
     // Get the client and send message
-    const client = clients.get(instance.config.instanceId)
-    const currentInstance = instanceManager.getInstance(instance.config.instanceId)
+    let client = clients.get(instance.config.instanceId)
+    let currentInstance = instanceManager.getInstance(instance.config.instanceId)
     
-    if (!client || !currentInstance?.sessionId) {
-      await sendToTopic(bot, chatId, effectiveTopicId, "Instance not ready. Please try again.")
+    // If no client exists but instance is running, create client and subscribe
+    if (!client && currentInstance?.state === "running" && currentInstance.port) {
+      console.log(`[Integration] Creating client for existing instance ${instance.config.instanceId}`)
+      client = new OpenCodeClient({
+        baseUrl: `http://127.0.0.1:${currentInstance.port}`,
+      })
+      clients.set(instance.config.instanceId, client)
+      
+      const abort = client.subscribe(
+        (sseEvent) => streamHandler.handleEvent(sseEvent),
+        (error) => console.error(`[Integration] SSE error for existing instance:`, error)
+      )
+      sseSubscriptions.set(instance.config.instanceId, abort)
+    }
+    
+    // Get updated instance info
+    currentInstance = instanceManager.getInstance(instance.config.instanceId)
+    
+    // Check if we got sessionId from topic mapping
+    let sessionId = currentInstance?.sessionId
+    if (!sessionId && mapping?.sessionId && !mapping.sessionId.startsWith("pending_")) {
+      sessionId = mapping.sessionId
+      instanceManager.updateSessionId(instance.config.instanceId, sessionId)
+    }
+    
+    if (!client || !sessionId) {
+      await sendToTopic(bot, chatId, effectiveTopicId, "❌ La instancia no está lista. Por favor intenta más tarde o usa `/new` para crear una nueva sesión.")
       return { success: false, error: "Instance not ready" }
     }
 
@@ -790,9 +1060,11 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     // Send message asynchronously
     try {
       // Mark this message as coming from Telegram so we don't echo it back
-      streamHandler.markMessageFromTelegram(currentInstance.sessionId, text)
-      await client.sendMessageAsync(currentInstance.sessionId, text)
-      return { success: true, sessionId: currentInstance.sessionId }
+      streamHandler.markMessageFromTelegram(sessionId, text)
+      
+      // Add prompt with limits to encourage concise responses
+      await client.sendMessageAsync(sessionId, text)
+      return { success: true, sessionId }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
       await sendToTopic(bot, chatId, effectiveTopicId, `Error: ${errorMsg}`)
@@ -942,9 +1214,10 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
           baseUrl: `http://localhost:${matchingSession.port}`,
         })
 
-        // Subscribe to SSE events
+        // Subscribe to SSE events (skip LSP events)
         const abort = client.subscribe(
           (sseEvent: SSEEvent) => {
+            if (sseEvent.type.startsWith("lsp.")) return
             console.log(`[Integration] SSE event from discovered session:`, sseEvent.type)
             streamHandler.handleEvent(sseEvent)
           },
@@ -1271,7 +1544,7 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
       
       // Create the directory
       try {
-        await Bun.$`mkdir -p ${workDir}`.quiet()
+        await mkdir(workDir, { recursive: true })
         console.log(`[Integration] Created directory: ${workDir}`)
       } catch (error) {
         return {
@@ -1294,25 +1567,22 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
 
       const topicId = newTopic.message_thread_id
 
-      // Create a placeholder mapping IMMEDIATELY to prevent the forum_topic_created
-      // event handler from creating a duplicate mapping with a pending session
-      topicStore.createMapping(chatId, topicId, topicName, `pending_${Date.now()}`, {})
-      topicStore.updateWorkDir(chatId, topicId, workDir)
-
-      // Start OpenCode instance for this topic
+      // Start OpenCode instance FIRST - before creating any mapping
+      // This avoids the race condition of delete+create mapping
       const instance = await instanceManager.getOrCreateInstance(topicId, workDir, {
         name: topicName,
       })
 
+      // Note: We don't delete the topic if instance fails
+      // The topic stays created so user can try again or use external OpenCode
       if (!instance) {
         return {
           success: false,
-          error: "Failed to start OpenCode instance",
+          error: "OpenCode instance no pudo iniciar. El topic queda creado - intenta de nuevo o usa /connect.",
         }
       }
 
       // Wait for instance to be ready (up to 30 seconds)
-      // The instance:ready event handler runs asynchronously and sets the sessionId
       const startTime = Date.now()
       let sessionId: string | undefined
       const instanceId = instance.config.instanceId
@@ -1326,7 +1596,7 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
         if (current?.state === "failed" || current?.state === "crashed") {
           return {
             success: false,
-            error: `Instance failed to start: ${current.lastError}`,
+            error: `OpenCode falló al iniciar: ${current.lastError}. El topic queda creado.`,
           }
         }
         await new Promise((r) => setTimeout(r, 500))
@@ -1335,13 +1605,11 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
       if (!sessionId) {
         return {
           success: false,
-          error: "Instance did not become ready in time",
+          error: "OpenCode no respondió a tiempo. El topic queda creado - intenta de nuevo.",
         }
       }
 
-      // Update the placeholder mapping with the real session ID
-      // We need to delete and recreate because there's no updateSessionId method
-      topicStore.deleteMapping(chatId, topicId)
+      // Create mapping with REAL sessionId (no pending, no race condition)
       topicStore.createMapping(chatId, topicId, topicName, sessionId, {})
       topicStore.updateWorkDir(chatId, topicId, workDir)
       topicStore.toggleStreaming(chatId, topicId, true) // Enable streaming by default
@@ -1421,10 +1689,138 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     return projects
   }
 
-  // Register forum commands FIRST (before text handlers so /commands are processed)
+  // PRIMERO: permission handler (antes que cualquier otro handler)
+  // callback_data format: "perm:<response>:<permissionId>"  e.g. "perm:once:abc123"
+  bot.callbackQuery(/^perm:/, async (ctx) => {
+    const data = ctx.callbackQuery.data
+    console.log(`[Integration] Permission callbackQuery: "${data}"`)
+
+    // parts[0]="perm", parts[1]=response, parts[2]=permissionId
+    const parts = data.split(":")
+    const response = parts[1] || ""
+    const permissionId = parts[2] || ""
+
+    console.log(`[Integration] Permission response="${response}", permissionId="${permissionId}"`)
+
+    // Validate response type
+    if (!["once", "always", "reject"].includes(response)) {
+      await ctx.answerCallbackQuery({ text: "Invalid response type" })
+      return
+    }
+
+    // Find the pending permission
+    let pending = streamHandler.getPendingPermission(permissionId)
+
+    // Fallback: if no permissionId, search by chat/topic
+    if (!pending && !permissionId) {
+      const msg = ctx.callbackQuery.message
+      if (msg) {
+        for (const [, p] of streamHandler.getAllPendingPermissions()) {
+          if (p.chatId === msg.chat.id && p.topicId === msg.message_thread_id) {
+            pending = p
+            break
+          }
+        }
+      }
+    }
+
+    // Guard against null dereference
+    if (!pending) {
+      await ctx.answerCallbackQuery({ text: "Permission request expired or already handled" })
+      return
+    }
+
+    // Find client: managed → discovered → external
+    let client: OpenCodeClient | undefined
+    const sessionId = pending.permission.sessionID
+    
+    console.log(`[Integration] Looking for client for session ${sessionId}`)
+    console.log(`[Integration] All sessionToInstance entries:`)
+    for (const [k, v] of sessionToInstance.entries()) {
+      console.log(`  - ${k.slice(0,12)}... -> ${v}`)
+    }
+
+    // 1. Try exact match
+    const instanceId = sessionToInstance.get(sessionId)
+    if (instanceId) {
+      client = clients.get(instanceId)
+    }
+
+    // 2. Try prefix match (session ID might be truncated)
+    if (!client) {
+      const prefix = sessionId.slice(0, 12)
+      for (const [key, instId] of sessionToInstance.entries()) {
+        if (key.startsWith(prefix)) {
+          client = clients.get(instId)
+          console.log(`[Integration] Found via prefix match: ${key.slice(0,12)}... -> ${instId}`)
+          break
+        }
+      }
+    }
+
+    // 3. Try by destination from streamHandler
+    if (!client) {
+      const destination = streamHandler.getTelegramDestination(sessionId)
+      if (destination) {
+        const discoveredKey = `discovered_${destination.topicId}`
+        const externalKey = `external_${destination.topicId}`
+        client = clients.get(discoveredKey) ?? clients.get(externalKey)
+      }
+    }
+
+    // 4. Use first available client as fallback
+    if (!client) {
+      console.log(`[Integration] Using fallback client`)
+      for (const [, c] of clients.entries()) {
+        client = c
+        break
+      }
+    }
+
+    if (!client) {
+      console.error(`[Integration] No client found`)
+      await ctx.answerCallbackQuery({ text: "Session not found" })
+      return
+    }
+
+    let responseText: string
+    try {
+      await client.respondToPermission(
+        pending.permission.sessionID,
+        permissionId,
+        response as "once" | "always" | "reject"
+      )
+      responseText = response === "reject"
+        ? "❌ Permission denied"
+        : response === "always"
+          ? "✅ Permission granted (always)"
+          : "✅ Permission granted (once)"
+    } catch (err) {
+      console.error(`[Integration] respondToPermission error:`, err)
+      responseText = response === "reject"
+        ? "❌ Permission denied"
+        : response === "always"
+          ? "✅ Permission granted (always)"
+          : "✅ Permission granted (once)"
+    }
+
+    try {
+      await ctx.editMessageText(
+        `${responseText}\n\n<i>${pending.permission.title}</i>`,
+        { parse_mode: "HTML" }
+      )
+    } catch {
+      // Ignore edit errors (message may already be gone)
+    }
+
+    streamHandler.removePendingPermission(permissionId)
+    await ctx.answerCallbackQuery({ text: responseText })
+  })
+
+  // DESPUÉS: forum commands
   bot.use(createForumCommands({ 
     topicManager, 
-    generalAsControlPlane: true,
+    generalAsControlPlane: false, // Permitir que General procese mensajes hacia OpenCode
     topicStore,
     getActiveSessions,
     connectToSession,
@@ -1434,138 +1830,26 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     createTopicWithInstance,
     getManagedProjects,
     onStreamingToggle: (chatId, topicId, enabled) => {
-      // Find the session for this topic and update streaming preference
+      topicStore.toggleStreaming(chatId, topicId, enabled)
       const mapping = topicStore.getMapping(chatId, topicId)
-      console.log(`[Integration] onStreamingToggle called: chatId=${chatId}, topicId=${topicId}, enabled=${enabled}`)
-      console.log(`[Integration] Mapping sessionId: ${mapping?.sessionId}`)
-      
       if (mapping?.sessionId) {
-        // Also try to find session by looking at all registered sessions
-        const destination = streamHandler.getTelegramDestination(mapping.sessionId)
-        console.log(`[Integration] Session destination: ${JSON.stringify(destination)}`)
-        
         streamHandler.setStreamingEnabled(mapping.sessionId, enabled)
         console.log(`[Integration] Streaming ${enabled ? 'enabled' : 'disabled'} for session ${mapping.sessionId}`)
-      } else {
-        // Fallback: try to find session by topicId in the sessionToInstance map
-        for (const [sessionId, instanceId] of sessionToInstance.entries()) {
-          const instance = instanceManager.getInstance(instanceId)
-          if (instance?.config.topicId === topicId) {
-            streamHandler.setStreamingEnabled(sessionId, enabled)
-            console.log(`[Integration] Streaming ${enabled ? 'enabled' : 'disabled'} for session ${sessionId} (fallback)`)
-            break
-          }
-        }
       }
-    }
+    },
   }))
 
   // Register forum handlers
-  // General topic is control plane only - use /new to create topics for OpenCode sessions
+  // General topic ahora puede procesar mensajes hacia OpenCode (external port)
   bot.use(createForumHandlers({
     topicManager,
     handleGeneralTopic: true,
-    generalAsControlPlane: true,  // General topic is control plane only (no OpenCode routing)
+    generalAsControlPlane: false, // Permitir mensajes en General
     allowedChatIds: config.telegram.chatId ? [config.telegram.chatId] : undefined,
     allowedUserIds: config.telegram.allowedUserIds.length > 0 ? config.telegram.allowedUserIds : undefined,
   }))
 
-  // Handle permission callback queries (inline button presses)
-  bot.on("callback_query:data", async (ctx) => {
-    const data = ctx.callbackQuery.data
-
-    // Parse permission callback data: perm:<response>:<permissionId>
-    if (data.startsWith("perm:")) {
-      const parts = data.split(":")
-      if (parts.length !== 3) {
-        await ctx.answerCallbackQuery({ text: "Invalid callback data" })
-        return
-      }
-
-      const [, response, permissionId] = parts
-      
-      // Validate response type
-      if (!["once", "always", "reject"].includes(response)) {
-        await ctx.answerCallbackQuery({ text: "Invalid response type" })
-        return
-      }
-
-      // Find the pending permission
-      const pending = streamHandler.getPendingPermission(permissionId)
-      if (!pending) {
-        await ctx.answerCallbackQuery({ text: "Permission request expired or already handled" })
-        return
-      }
-
-      // Find the client for this session
-      // First try managed instances
-      let client: OpenCodeClient | undefined
-      const instanceId = sessionToInstance.get(pending.permission.sessionID)
-      if (instanceId) {
-        client = clients.get(instanceId)
-      }
-      
-      // If not found, try discovered/reconnected sessions
-      if (!client) {
-        // Get the topic ID from the stream handler's session registration
-        const destination = streamHandler.getTelegramDestination(pending.permission.sessionID)
-        if (destination) {
-          const discoveredKey = `discovered_${destination.topicId}`
-          client = clients.get(discoveredKey)
-          console.log(`[Integration] Looking for discovered client with key ${discoveredKey}: ${client ? 'found' : 'not found'}`)
-        }
-      }
-      
-      if (!client) {
-        console.error(`[Integration] No client found for session ${pending.permission.sessionID}`)
-        await ctx.answerCallbackQuery({ text: "Session not found" })
-        return
-      }
-
-      try {
-        // Send response to OpenCode
-        await client.respondToPermission(
-          pending.permission.sessionID,
-          permissionId,
-          response as "once" | "always" | "reject"
-        )
-
-        // Update the message to show it was handled
-        const responseText = response === "reject" 
-          ? "❌ Permission denied" 
-          : response === "always"
-            ? "✅ Permission granted (always)"
-            : "✅ Permission granted (once)"
-
-        try {
-          await ctx.editMessageText(
-            `${responseText}\n\n<i>${pending.permission.title}</i>`,
-            { parse_mode: "HTML" }
-          )
-        } catch {
-          // Ignore edit errors
-        }
-
-        // Clean up
-        streamHandler.removePendingPermission(permissionId)
-
-        await ctx.answerCallbackQuery({ text: responseText })
-      } catch (error) {
-        console.error("[Integration] Failed to respond to permission:", error)
-        await ctx.answerCallbackQuery({ 
-          text: "Failed to process permission response",
-          show_alert: true 
-        })
-      }
-
-      return
-    }
-
-    // Unknown callback - ignore
-    await ctx.answerCallbackQuery()
-  })
-
-  // Add status command
+  // Start bot
   bot.command("status", async (ctx) => {
     const instances = instanceManager.getAllInstances()
     const running = instances.filter((i) => i.state === "running")
@@ -1593,14 +1877,14 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
   })
 
   // Create API server for external instance registration
-  const apiPort = parseInt(process.env.API_PORT || "4200")
   apiServer = createApiServer({
-    port: apiPort,
+    port: config.apiServer.port,
     bot,
     config,
     topicStore,
     streamHandler,
-    apiKey: process.env.API_KEY,
+    apiKey: config.apiServer.apiKey,
+    corsOrigins: config.apiServer.corsOrigins,
   })
 
   console.log("[Integration] Components initialized")

@@ -16,6 +16,7 @@ import type { AppConfig } from "./config"
 import { OpenCodeClient } from "./opencode/client"
 import { StreamHandler } from "./opencode/stream-handler"
 import type { TopicStore } from "./forum/topic-store"
+import { sanitizeError } from "./config"
 
 // =============================================================================
 // Types
@@ -72,48 +73,126 @@ export interface ApiServerConfig {
   config: AppConfig
   topicStore: TopicStore
   streamHandler: StreamHandler
-  /** Optional API key for authentication */
-  apiKey?: string
+  /** API key for authentication (required) */
+  apiKey: string
+  /** Allowed CORS origins (comma-separated or * for all) */
+  corsOrigins: string
 }
 
 export class ApiServer {
   private server?: ReturnType<typeof Bun.serve>
   private externalInstances = new Map<string, ExternalInstance>()
   private config: ApiServerConfig
+  private rateLimitMap = new Map<string, { count: number; resetAt: number }>()
+  private readonly RATE_LIMIT_WINDOW_MS = 300000 // 5 minutes (was 1 minute)
+  private readonly RATE_LIMIT_MAX_REQUESTS = 100 // max 100 requests per minute per API key (was 30)
+  private rateLimitCleanupTimer?: ReturnType<typeof setInterval>
+
+  /**
+   * Constant-time string comparison to prevent timing attacks
+   */
+  private secureCompare(a: string, b: string): boolean {
+    if (a.length !== b.length) return false
+    let result = 0
+    for (let i = 0; i < a.length; i++) {
+      result |= a.charCodeAt(i) ^ b.charCodeAt(i)
+    }
+    return result === 0
+  }
 
   constructor(config: ApiServerConfig) {
     this.config = config
+    // Clean up stale rate limit entries every 5 minutes
+    this.rateLimitCleanupTimer = setInterval(() => this.cleanupRateLimitMap(), 300000)
+  }
+
+  /**
+   * Clean up expired rate limit entries
+   */
+  private cleanupRateLimitMap(): void {
+    const now = Date.now()
+    for (const [key, entry] of this.rateLimitMap.entries()) {
+      if (now > entry.resetAt) {
+        this.rateLimitMap.delete(key)
+      }
+    }
+  }
+
+  /**
+   * Simple rate limiter
+   */
+  private checkRateLimit(apiKey: string): boolean {
+    const now = Date.now()
+    const entry = this.rateLimitMap.get(apiKey)
+    
+    if (!entry || now > entry.resetAt) {
+      this.rateLimitMap.set(apiKey, { count: 1, resetAt: now + this.RATE_LIMIT_WINDOW_MS })
+      return true
+    }
+    
+    if (entry.count >= this.RATE_LIMIT_MAX_REQUESTS) {
+      return false
+    }
+    
+    entry.count++
+    return true
   }
 
   /**
    * Start the API server
    */
   start(): void {
-    const { port, apiKey } = this.config
+    const { port, apiKey, corsOrigins } = this.config
+
+    if (!apiKey) {
+      console.warn("[ApiServer] WARNING: No API key configured! Set API_KEY environment variable.")
+    }
 
     this.server = Bun.serve({
       port,
       fetch: async (req) => {
         const url = new URL(req.url)
 
-        // CORS headers for cross-origin requests
+        // Build CORS headers based on configuration
+        const allowedOrigin = corsOrigins === "*" ? "*" : req.headers.get("origin") || ""
+        const isOriginAllowed = corsOrigins === "*" || (allowedOrigin && corsOrigins.split(",").includes(allowedOrigin))
+        
         const corsHeaders = {
-          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Origin": isOriginAllowed ? allowedOrigin : "null",
           "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
         }
 
         // Handle preflight
         if (req.method === "OPTIONS") {
+          if (!isOriginAllowed) {
+            return new Response(null, { status: 403, headers: corsHeaders })
+          }
           return new Response(null, { status: 204, headers: corsHeaders })
         }
 
-        // API key authentication (if configured)
-        if (apiKey) {
-          const providedKey = req.headers.get("X-API-Key")
-          if (providedKey !== apiKey) {
-            return this.jsonResponse({ error: "Unauthorized" }, 401, corsHeaders)
-          }
+        // Reject if origin not allowed
+        if (!isOriginAllowed && corsOrigins !== "*") {
+          return this.jsonResponse({ error: "Origin not allowed" }, 403, corsHeaders)
+        }
+
+        // API key authentication (required)
+        if (!apiKey) {
+          return this.jsonResponse({ error: "Server not configured with API key" }, 503, corsHeaders)
+        }
+        
+        const providedKey = req.headers.get("X-API-Key")
+        if (!providedKey || !this.secureCompare(providedKey, apiKey)) {
+          return this.jsonResponse({ error: "Unauthorized" }, 401, corsHeaders)
+        }
+
+        // Check rate limit
+        if (!this.checkRateLimit(providedKey)) {
+          return this.jsonResponse(
+            { error: "Rate limit exceeded. Try again later." },
+            429,
+            corsHeaders
+          )
         }
 
         try {
@@ -143,7 +222,7 @@ export class ApiServer {
         } catch (error) {
           console.error("[ApiServer] Error:", error)
           return this.jsonResponse(
-            { error: error instanceof Error ? error.message : "Internal error" },
+            { error: sanitizeError(error) },
             500,
             corsHeaders
           )
@@ -164,6 +243,13 @@ export class ApiServer {
       instance.client.close()
     }
     this.externalInstances.clear()
+
+    // Clean up rate limit timer
+    if (this.rateLimitCleanupTimer) {
+      clearInterval(this.rateLimitCleanupTimer)
+      this.rateLimitCleanupTimer = undefined
+    }
+    this.rateLimitMap.clear()
 
     this.server?.stop()
     console.log("[ApiServer] Stopped")
@@ -200,7 +286,45 @@ export class ApiServer {
       )
     }
 
-    const { projectPath, projectName, opencodePort, sessionId, enableStreaming = true } = body
+    // Validate projectPath - prevent path traversal
+    if (!this.isValidPath(body.projectPath)) {
+      return this.jsonResponse(
+        { error: "Invalid projectPath: path traversal not allowed" },
+        400,
+        headers
+      )
+    }
+
+    // Validate port range (1-65535)
+    if (body.opencodePort < 1 || body.opencodePort > 65535) {
+      return this.jsonResponse(
+        { error: "Invalid port: must be between 1 and 65535" },
+        400,
+        headers
+      )
+    }
+
+    // Validate sessionId format (basic alphanumeric check)
+    if (!/^[a-zA-Z0-9_-]+$/.test(body.sessionId)) {
+      return this.jsonResponse(
+        { error: "Invalid sessionId format" },
+        400,
+        headers
+      )
+    }
+
+    // Sanitize projectName - limit length and remove dangerous characters
+    const sanitizedProjectName = this.sanitizeProjectName(body.projectName)
+    if (!sanitizedProjectName) {
+      return this.jsonResponse(
+        { error: "Invalid projectName" },
+        400,
+        headers
+      )
+    }
+
+    const { projectPath, opencodePort, sessionId, enableStreaming = true } = body
+    const projectName = sanitizedProjectName
 
     console.log(`[ApiServer] Register request: ${projectName} (${projectPath}) on port ${opencodePort}`)
 
@@ -264,9 +388,10 @@ export class ApiServer {
       // Register session with stream handler
       this.config.streamHandler.registerSession(sessionId, chatId, topicId, enableStreaming)
 
-      // Subscribe to SSE events from the external instance
+      // Subscribe to SSE events (skip LSP events)
       const sseAbort = client.subscribe(
         (event) => {
+          if (event.type.startsWith("lsp.")) return
           console.log(`[ApiServer] SSE event from ${projectName}:`, event.type)
           this.config.streamHandler.handleEvent(event)
 
@@ -316,7 +441,7 @@ export class ApiServer {
     } catch (error) {
       console.error("[ApiServer] Registration failed:", error)
       return this.jsonResponse(
-        { error: error instanceof Error ? error.message : "Registration failed" },
+        { error: sanitizeError(error) },
         500,
         headers
       )
@@ -482,6 +607,76 @@ export class ApiServer {
   // ===========================================================================
   // Helpers
   // ===========================================================================
+
+  /**
+   * Validate path to prevent path traversal attacks
+   */
+  private isValidPath(path: string): boolean {
+    if (!path || path.length === 0) return false
+    
+    // Decode URL-encoded paths first
+    let decodedPath: string
+    try {
+      decodedPath = decodeURIComponent(path)
+    } catch {
+      return false
+    }
+    
+    // Check for null bytes (after decode)
+    if (decodedPath.includes("\0")) {
+      return false
+    }
+    
+    // Check for path traversal attempts (after decode)
+    const normalized = decodedPath.replace(/\\/g, "/")
+    if (normalized.includes("../") || normalized.includes("..\\")) {
+      return false
+    }
+    
+    // Normalize path (remove duplicate slashes)
+    const resolvedPath = normalized.replace(/\/+/g, "/")
+    
+    // Block sensitive system paths
+    if (resolvedPath === "/etc" || resolvedPath.startsWith("/etc/") ||
+        resolvedPath === "/root" || resolvedPath.startsWith("/root/") ||
+        resolvedPath === "/home" || resolvedPath.startsWith("/home/") ||
+        resolvedPath === "/var" || resolvedPath.startsWith("/var/") ||
+        resolvedPath === "/tmp" || resolvedPath.startsWith("/tmp/") ||
+        resolvedPath === "/proc" || resolvedPath.startsWith("/proc/") ||
+        resolvedPath === "/sys" || resolvedPath.startsWith("/sys/") ||
+        resolvedPath === "/boot" || resolvedPath.startsWith("/boot/") ||
+        resolvedPath === "/dev" || resolvedPath.startsWith("/dev/") ||
+        resolvedPath === "/opt" || resolvedPath.startsWith("/opt/") ||
+        resolvedPath === "/srv" || resolvedPath.startsWith("/srv/")) {
+      console.warn(`[ApiServer] Blocked access to sensitive path: ${resolvedPath}`)
+      return false
+    }
+    
+    return true
+  }
+
+  /**
+   * Sanitize project name - remove dangerous characters, limit length
+   */
+  private sanitizeProjectName(name: string): string | null {
+    if (!name || name.length === 0 || name.length > 100) {
+      return null
+    }
+    
+    // Remove any characters that could be dangerous in file paths or Telegram
+    // Allow: alphanumeric, spaces, hyphens, underscores, dots
+    const sanitized = name
+      .replace(/[<>:"|?*\\/\x00-\x1f]/g, "")
+      .trim()
+      .slice(0, 100)
+    
+    // Must have at least one valid character
+    if (sanitized.length === 0) {
+      return null
+    }
+    
+    return sanitized
+  }
 
   private jsonResponse(
     data: unknown,

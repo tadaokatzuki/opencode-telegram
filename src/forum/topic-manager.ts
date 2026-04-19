@@ -217,6 +217,8 @@ export class TopicManager {
     
     console.log(`[TopicManager] Routing message from topic ${topicId}: "${text.slice(0, 50)}..."`)
 
+    console.log(`[TopicManager] routeMessage: chatId=${chatId}, topicId=${topicId}, text 길이=${text.length}`)
+
     // Handle General topic (topicId = 0)
     const effectiveTopicId = context.isGeneralTopic ? 0 : topicId
 

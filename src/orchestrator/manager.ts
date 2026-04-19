@@ -67,9 +67,6 @@ export class InstanceManager {
       portRange: `${this.config.portPool.startPort}-${this.config.portPool.startPort + this.config.portPool.poolSize - 1}`,
       idleTimeout: `${this.config.defaultIdleTimeoutMs / 1000 / 60} min`,
     })
-    
-    // Set up graceful shutdown handlers
-    this.setupShutdownHandlers()
   }
   
   // ===========================================================================
@@ -457,7 +454,7 @@ export class InstanceManager {
           topicId: state.topicId,
           workDir: state.workDir,
           name: state.name,
-          env: state.env ? JSON.parse(state.env) : undefined,
+          env: state.env ? (() => { try { return JSON.parse(state.env) } catch { return undefined } })() : undefined,
         },
         state.port,
         this.config,
@@ -631,29 +628,5 @@ export class InstanceManager {
         console.error("[Manager] Event listener error:", err)
       }
     }
-  }
-  
-  /**
-   * Set up process signal handlers for graceful shutdown
-   */
-  private setupShutdownHandlers(): void {
-    const handler = async (signal: string) => {
-      console.log(`\n[Manager] Received ${signal}, initiating graceful shutdown...`)
-      await this.shutdown()
-      process.exit(0)
-    }
-    
-    process.on("SIGINT", () => handler("SIGINT"))
-    process.on("SIGTERM", () => handler("SIGTERM"))
-    
-    // Handle uncaught errors
-    process.on("uncaughtException", (err) => {
-      console.error("[Manager] Uncaught exception:", err)
-      this.shutdown().then(() => process.exit(1))
-    })
-    
-    process.on("unhandledRejection", (reason, promise) => {
-      console.error("[Manager] Unhandled rejection at:", promise, "reason:", reason)
-    })
   }
 }

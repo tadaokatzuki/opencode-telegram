@@ -26,6 +26,9 @@ export interface TelegramConfig {
   
   /** Whether to handle the General topic */
   handleGeneralTopic: boolean
+  
+  /** Debug topic ID (where process logs will be sent) */
+  debugTopicId?: number
 }
 
 /**
@@ -58,6 +61,12 @@ export interface OpenCodeConfig {
   
   /** Stale topic cleanup interval in milliseconds */
   staleTopicCleanupIntervalMs: number
+
+  /** External OpenCode port (0 = disabled) */
+  externalPort: number
+  
+  /** Allowed ports for external connections (whitelist to prevent SSRF) */
+  allowedExternalPorts: number[]
 }
 
 /**
@@ -83,6 +92,20 @@ export interface ProjectConfig {
 }
 
 /**
+ * API Server configuration
+ */
+export interface ApiServerConfig {
+  /** Port for the API server */
+  port: number
+  
+  /** API key for authentication */
+  apiKey: string
+  
+  /** Allowed CORS origins */
+  corsOrigins: string
+}
+
+/**
  * Full application configuration
  */
 export interface AppConfig {
@@ -90,6 +113,7 @@ export interface AppConfig {
   opencode: OpenCodeConfig
   storage: StorageConfig
   project: ProjectConfig
+  apiServer: ApiServerConfig
 }
 
 // =============================================================================
@@ -106,14 +130,16 @@ const DEFAULT_CONFIG: AppConfig = {
   opencode: {
     binaryPath: "opencode",
     maxInstances: 10,
-    idleTimeoutMs: 30 * 60 * 1000, // 30 minutes
+    idleTimeoutMs: 30 * 60 * 1000,
     portStart: 4100,
     portPoolSize: 100,
     healthCheckIntervalMs: 30_000,
     startupTimeoutMs: 60_000,
-    staleTopicTimeoutMs: 60 * 60 * 1000, // 1 hour
-    staleTopicCleanupIntervalMs: 5 * 60 * 1000, // 5 minutes
-  },
+    staleTopicTimeoutMs: 24 * 60 * 60 * 1000, // 24 hours - disable auto-close
+    staleTopicCleanupIntervalMs: 0, // Disable cleanup
+    externalPort: 0,
+    allowedExternalPorts: [4096], // Default allowed port for external OpenCode
+  } as OpenCodeConfig,
   storage: {
     orchestratorDbPath: "./data/orchestrator.db",
     topicDbPath: "./data/topics.db",
@@ -121,6 +147,11 @@ const DEFAULT_CONFIG: AppConfig = {
   project: {
     basePath: `${process.env.HOME || "/tmp"}/oc-bot`,
     autoCreateDirs: true,
+  },
+  apiServer: {
+    port: parseIntEnv("API_PORT", 4200),
+    apiKey: getEnv("API_KEY", ""),
+    corsOrigins: getEnv("CORS_ORIGINS", "*"),
   },
 }
 
@@ -138,8 +169,9 @@ export function loadConfig(): AppConfig {
       chatId: parseIntEnv("TELEGRAM_CHAT_ID", 0),
       allowedUserIds: parseIntArrayEnv("TELEGRAM_ALLOWED_USERS"),
       handleGeneralTopic: parseBoolEnv("HANDLE_GENERAL_TOPIC", true),
+      debugTopicId: parseIntEnv("DEBUG_TOPIC_ID", 0) || undefined,
     },
-    opencode: {
+opencode: {
       binaryPath: getEnv("OPENCODE_PATH", DEFAULT_CONFIG.opencode.binaryPath),
       maxInstances: parseIntEnv("OPENCODE_MAX_INSTANCES", DEFAULT_CONFIG.opencode.maxInstances),
       idleTimeoutMs: parseIntEnv("OPENCODE_IDLE_TIMEOUT_MS", DEFAULT_CONFIG.opencode.idleTimeoutMs),
@@ -148,7 +180,9 @@ export function loadConfig(): AppConfig {
       healthCheckIntervalMs: parseIntEnv("OPENCODE_HEALTH_CHECK_INTERVAL_MS", DEFAULT_CONFIG.opencode.healthCheckIntervalMs),
       startupTimeoutMs: parseIntEnv("OPENCODE_STARTUP_TIMEOUT_MS", DEFAULT_CONFIG.opencode.startupTimeoutMs),
       staleTopicTimeoutMs: parseIntEnv("STALE_TOPIC_TIMEOUT_MS", DEFAULT_CONFIG.opencode.staleTopicTimeoutMs),
-      staleTopicCleanupIntervalMs: parseIntEnv("STALE_TOPIC_CLEANUP_INTERVAL_MS", DEFAULT_CONFIG.opencode.staleTopicCleanupIntervalMs),
+      staleTopicCleanupIntervalMs: parseIntEnv("STALE_CLEANUP_INTERVAL_MS", DEFAULT_CONFIG.opencode.staleTopicCleanupIntervalMs),
+      externalPort: parseIntEnv("OPENCODE_EXTERNAL_PORT", 0),
+      allowedExternalPorts: parseIntArrayEnv("ALLOWED_EXTERNAL_PORTS", DEFAULT_CONFIG.opencode.allowedExternalPorts),
     },
     storage: {
       orchestratorDbPath: getEnv("ORCHESTRATOR_DB_PATH", DEFAULT_CONFIG.storage.orchestratorDbPath),
@@ -158,9 +192,41 @@ export function loadConfig(): AppConfig {
       basePath: getEnv("PROJECT_BASE_PATH", DEFAULT_CONFIG.project.basePath),
       autoCreateDirs: parseBoolEnv("AUTO_CREATE_PROJECT_DIRS", DEFAULT_CONFIG.project.autoCreateDirs),
     },
+    apiServer: {
+      port: parseIntEnv("API_PORT", DEFAULT_CONFIG.apiServer.port),
+      apiKey: getEnv("API_KEY", DEFAULT_CONFIG.apiServer.apiKey),
+      corsOrigins: getEnv("CORS_ORIGINS", DEFAULT_CONFIG.apiServer.corsOrigins),
+    },
   }
 
   return config
+}
+
+/**
+ * Validate that the OpenCode binary exists and is executable
+ */
+export async function validateOpenCodeBinary(binaryPath: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    const file = Bun.file(binaryPath)
+    if (!await file.exists()) {
+      // Try to find it in PATH
+      const which = await Bun.$`which ${binaryPath}`.text()
+      if (!which.trim()) {
+        return { valid: false, error: `OpenCode binary not found: ${binaryPath}` }
+      }
+      return { valid: true }
+    }
+    
+    // Check if executable
+    try {
+      await Bun.$`test -x ${binaryPath}`.quiet()
+      return { valid: true }
+    } catch {
+      return { valid: true } // May work without executable bit on some systems
+    }
+  } catch (error) {
+    return { valid: false, error: error instanceof Error ? error.message : "Unknown error" }
+  }
 }
 
 /**
@@ -189,6 +255,63 @@ export function validateConfig(config: AppConfig): { valid: boolean; errors: str
     valid: errors.length === 0,
     errors,
   }
+}
+
+/**
+ * Sanitize error messages for user-facing output
+ * Removes internal paths, stack traces, and sensitive information
+ */
+export function sanitizeError(error: unknown): string {
+  if (!error) return "An unknown error occurred"
+  
+  let message: string
+  if (error instanceof Error) {
+    message = error.message
+  } else if (typeof error === "string") {
+    message = error
+  } else {
+    return "An internal error occurred"
+  }
+  
+  // Patterns that indicate internal/system information that shouldn't be exposed
+  const sensitivePatterns = [
+    // File paths that might reveal project structure
+    { pattern: /\/?[\w\-\.]+\/[\w\-\.\/]+(\/node_modules|\/src|\/dist|\/\.)/g, replacement: "[path]" },
+    // Stack trace lines
+    { pattern: /at\s+[\w\.$<>]+\s+\([^)]+\)/g, replacement: "" },
+    // Error codes in brackets
+    { pattern: /\[(?:ERR_|E_)[A-Z0-9_]+\]/gi, replacement: "" },
+    // Port numbers and internal addresses
+    { pattern: /localhost:\d+/g, replacement: "[host]" },
+    { pattern: /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: "[ip]" },
+    // Home directory paths
+    { pattern: RegExp(process.env.HOME?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") || "/home/[^/]+", "g"), replacement: "~" },
+    // Absolute paths starting with /
+    { pattern: /\/[\w\-\.]+(\/[\w\-\.]+){2,}/g, replacement: "[path]" },
+    // Database paths
+    { pattern: /\.db\b/g, replacement: "[db]" },
+    // Environment variable names
+    { pattern: /\$\{?[\w_]+\}?/g, replacement: "[env]" },
+  ]
+  
+  let sanitized = message
+  
+  for (const { pattern, replacement } of sensitivePatterns) {
+    sanitized = sanitized.replace(pattern, replacement)
+  }
+  
+  // Remove any remaining multi-line content (stack traces)
+  sanitized = sanitized.split("\n")[0]
+  
+  // Trim and limit length
+  sanitized = sanitized.trim().slice(0, 200)
+  
+  // If the result is too generic or empty, use a safe default
+  if (!sanitized || sanitized.length < 3) {
+    return "An internal error occurred"
+  }
+  
+  return sanitized
 }
 
 // =============================================================================
@@ -253,9 +376,9 @@ function parseBoolEnv(key: string, defaultValue: boolean): boolean {
   return value === "true" || value === "1" || value === "yes"
 }
 
-function parseIntArrayEnv(key: string): number[] {
+function parseIntArrayEnv(key: string, defaultValue: number[] = []): number[] {
   const value = process.env[key]
-  if (!value) return []
+  if (!value) return defaultValue
   return value
     .split(",")
     .map((s) => parseInt(s.trim(), 10))

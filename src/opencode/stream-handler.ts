@@ -49,6 +49,7 @@ export class StreamHandler {
   private readonly states: Map<string, StreamingState> = new Map()
   private readonly sendCallback: TelegramSendCallback
   private readonly deleteCallback?: TelegramDeleteCallback
+  private readonly debugCallback?: (text: string) => void | Promise<void>
 
   /** Mapping from sessionId to Telegram chat/topic info */
   private readonly sessionToTelegram: Map<string, { chatId: number; topicId: number }> = new Map()
@@ -78,6 +79,7 @@ export class StreamHandler {
   ) {
     this.sendCallback = sendCallback
     this.deleteCallback = deleteCallback
+    this.debugCallback = config?.debugCallback
     this.config = { ...DEFAULT_STREAM_HANDLER_CONFIG, ...config }
   }
 
@@ -102,12 +104,16 @@ export class StreamHandler {
   }
 
   /**
-   * Unregister a session
+   * Unregister a session - clean up all associated state
    */
   unregisterSession(sessionId: string): void {
     this.sessionToTelegram.delete(sessionId)
     this.sessionStreamingEnabled.delete(sessionId)
     this.states.delete(sessionId)
+    this.pendingPermissions.delete(sessionId)
+    this.messageRoles.delete(sessionId)
+    this.sentUserMessages.delete(sessionId)
+    this.messagesFromTelegram.delete(sessionId)
   }
 
   /**
@@ -224,6 +230,7 @@ export class StreamHandler {
         break
 
       case "permission.updated":
+      case "permission.asked":
         await this.handlePermissionUpdated(event, destination)
         break
 
@@ -288,6 +295,15 @@ export class StreamHandler {
     if (part.type === "text" && part.text) {
       state.currentText = part.text
     }
+    
+    // Handle reasoning/thinking parts
+    if (part.type === "reasoning" && (part as any).reasoning) {
+      const reasoningText = (part as any).reasoning as string
+      state.reasoning = reasoningText
+      // Debug: show thinking preview
+      const thinkingPreview = reasoningText.slice(-150).replace(/\n/g, ' ')
+      this.debugCallback?.(`🧠 <b>Thinking:</b> ${thinkingPreview}...`)
+    }
 
     // Handle tool parts (type: "tool") - OpenCode uses "tool" not "tool-invocation"
     if (part.type === "tool" && part.callID && part.tool) {
@@ -297,6 +313,7 @@ export class StreamHandler {
           name: part.tool,
           callId: part.callID,
           startedAt: new Date(),
+          args: (part as any).args,  // Guardar args para contexto
         })
       }
       // Check if tool has result (state field or result field)
@@ -419,11 +436,18 @@ export class StreamHandler {
         name: props.tool,
         callId: props.callID,
         startedAt: new Date(),
+        args: props.args,  // Guardar args para mostrar contexto
       })
+      
+      // Debug: notify tool execution
+      const toolInfo = props.args?.path || props.args?.command || props.args?.query || props.args?.[0] || ""
+      this.debugCallback?.(`🔧 <b>Tool:</b> ${props.tool} ${toolInfo}`)
     }
 
-    // Force update to show tool is running
-    await this.updateTelegram(sessionId, state, destination, true)
+    // Force update to show tool is running — only if progress is enabled
+    if (this.config.sendProgressToMainTopic !== false) {
+      await this.updateTelegram(sessionId, state, destination, true)
+    }
   }
 
   /**
@@ -450,6 +474,10 @@ export class StreamHandler {
     if (tool) {
       tool.completedAt = new Date()
       tool.title = props.title
+      
+      // Debug: tool completed
+      const resultInfo = props.title ? ` - ${props.title.slice(0, 50)}` : ''
+      this.debugCallback?.(`✅ <b>Tool done:</b> ${props.tool}${resultInfo}`)
     }
 
     // Update Telegram to show tool completed
@@ -472,7 +500,39 @@ export class StreamHandler {
     if (state.currentText.trim()) {
       // Convert Markdown to Telegram HTML for proper rendering
       const htmlContent = markdownToTelegramHtml(state.currentText.trim())
-      const finalContent = truncateForTelegram(htmlContent)
+      
+      // Build final content with summary - Bug #3: calcular espacio antes
+      // Dejar ~300 chars para el resumen
+      const MAX_CONTENT_LENGTH = 3700
+      let finalContent = truncateForTelegram(htmlContent, MAX_CONTENT_LENGTH)
+      
+      // Agregar resumen de la sesión al final
+      const elapsed = Math.round((Date.now() - state.startedAt.getTime()) / 1000)
+      const completedTools = state.toolsInvoked.filter((t) => t.completedAt)
+      const summaryParts: string[] = []
+      
+      if (elapsed > 0) {
+        const mins = Math.floor(elapsed / 60)
+        const secs = elapsed % 60
+        summaryParts.push(`⏱️ ${mins > 0 ? `${mins}m ` : ""}${secs}s`)
+      }
+      
+      if (state.tokens) {
+        const totalTokens = state.tokens.input + state.tokens.output
+        summaryParts.push(`📊 ${this.formatTokenCount(totalTokens)}`)
+      }
+      
+      if (completedTools.length > 0) {
+        const toolNames = completedTools.map((t) => t.title || t.name).slice(-5).join(", ")
+        const moreTools = completedTools.length > 5 ? ` (+${completedTools.length - 5} más)` : ""
+        summaryParts.push(`🔧 ${toolNames}${moreTools}`)
+      }
+      
+      if (summaryParts.length > 0) {
+        finalContent += "\n\n" + "─".repeat(20) + "\n" + summaryParts.join(" • ")
+      }
+      
+      // No hacer segundo truncate - el primero ya dejó espacio para el resumen
       
       try {
         if (state.telegramMessageId) {
@@ -528,14 +588,11 @@ export class StreamHandler {
             // Give up
           }
         } else if (errorMsg.includes('429') || errorMsg.includes('Too Many Requests') || errorMsg.includes('Rate limited')) {
-          // Rate limited - wait and retry the final response (it's important!)
-          const retryMatch = errorMsg.match(/retry after (\d+)/)
-          const retryAfter = retryMatch ? parseInt(retryMatch[1], 10) * 1000 : 5000
-          console.log(`[StreamHandler] Rate limited on final response, waiting ${retryAfter}ms to retry`)
+          // Rate limited - wait 5 seconds before retry instead of skipping
+          console.log(`[StreamHandler] Rate limited, waiting 5s before retry...`)
+          await new Promise(r => setTimeout(r, 5000))
           
-          // Wait for rate limit to expire, then retry
-          await new Promise(resolve => setTimeout(resolve, retryAfter + 500))
-          
+          // Retry without returning - now this code will actually execute
           try {
             if (state.telegramMessageId) {
               await this.sendCallback(
@@ -576,12 +633,46 @@ export class StreamHandler {
           console.log(`[StreamHandler] Final edit failed (${errorMsg.slice(0, 80)}), keeping progress message`)
         }
       }
-    } else if (this.config.deleteProgressOnComplete && state.telegramMessageId && this.deleteCallback) {
-      // No text but we have a progress message - delete it
-      try {
-        await this.deleteCallback(destination.chatId, state.telegramMessageId)
-      } catch {
-        // Ignore delete errors
+    } else if (state.telegramMessageId && this.deleteCallback) {
+      // No text response - send informative message before deleting (Bug #9)
+      const completedTools = state.toolsInvoked.filter((t) => t.completedAt)
+      const elapsed = Math.round((Date.now() - state.startedAt.getTime()) / 1000)
+      const msgId = state.telegramMessageId
+      
+      let infoMessage = "⚠️ Sesión completada sin respuesta de texto."
+      
+      // Agregar info de tools si hubo
+      if (completedTools.length > 0) {
+        const toolNames = completedTools.map((t) => t.title || t.name).join(", ")
+        infoMessage += `\n🔧 Tools ejecutadas: ${toolNames}`
+      }
+      
+      if (elapsed > 0) {
+        infoMessage += `\n⏱️ Tiempo: ${elapsed}s`
+      }
+      
+      if (this.config.deleteProgressOnComplete) {
+        // Edit the progress message with info, then delete after delay
+        try {
+          await this.sendCallback(
+            destination.chatId,
+            destination.topicId,
+            infoMessage,
+            { editMessageId: msgId }
+          )
+          
+          // Wait 3 seconds then delete
+          setTimeout(async () => {
+            try {
+              await this.deleteCallback!(destination.chatId, msgId)
+            } catch { /* ignore */ }
+          }, 3000)
+        } catch {
+          // If edit fails, try direct delete
+          try {
+            await this.deleteCallback!(destination.chatId, msgId)
+          } catch { /* ignore */ }
+        }
       }
     }
 
@@ -691,7 +782,36 @@ export class StreamHandler {
     event: SSEEvent,
     destination: { chatId: number; topicId: number }
   ): Promise<void> {
-    const permission = event.properties as Permission
+    // Handle both permission.updated (in properties) and permission.asked (direct)
+    let permission: Permission
+    const evt = event as any
+    
+    console.log(`[StreamHandler] Full event keys:`, Object.keys(evt))
+    console.log(`[StreamHandler] Raw event:`, JSON.stringify(evt).slice(0, 300))
+    
+    // Look for ID in various possible locations
+    const possibleId = evt.id || evt.permissionID || evt.properties?.id || evt.properties?.permissionID || ""
+    
+    if (event.properties && (event.properties as any).type) {
+      permission = event.properties as Permission
+    } else {
+      // permission.asked has direct properties
+      const metadata = evt.metadata || {}
+      permission = {
+        id: possibleId || `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: evt.permission || "external_directory",
+        pattern: evt.patterns || evt.pattern,  // Bug fix: type uses 'pattern' not 'patterns'
+        sessionID: evt.sessionID || "",
+        messageID: evt.messageID || "",
+        callID: evt.callID,
+        title: metadata.filepath || metadata.command || evt.permission || "Permission Request",
+        metadata: metadata,
+        time: { created: Date.now() }
+      }
+    }
+
+    // Debug: verify permission.id is set
+    console.log(`[StreamHandler] Permission ID: "${permission.id}", type: "${permission.type}", title: "${permission.title}"`)
 
     console.log(`[StreamHandler] Permission request: ${permission.type} - ${permission.title}`)
 
@@ -777,8 +897,8 @@ export class StreamHandler {
 
     parts.push(`<b>🔐 Permission Required</b>`)
     parts.push("")
-    parts.push(`<b>Type:</b> <code>${this.escapeHtml(permission.type)}</code>`)
-    parts.push(`<b>Action:</b> ${this.escapeHtml(permission.title)}`)
+    parts.push(`<b>Type:</b> <code>${this.escapeHtml(permission.type ?? "")}</code>`)
+    parts.push(`<b>Action:</b> <code>${this.escapeHtml(permission.title ?? "")}</code>`)
 
     // Show pattern if available (e.g., for bash commands)
     if (permission.pattern) {
@@ -842,6 +962,12 @@ export class StreamHandler {
     state: StreamingState,
     destination: { chatId: number; topicId: number }
   ): Promise<void> {
+    // Si sendProgressToMainTopic es false, NO enviar updates de progreso al topic principal
+    // Solo el session.idle enviara la respuesta final
+    if (this.config.sendProgressToMainTopic === false) {
+      return
+    }
+    
     const now = Date.now()
     const lastUpdate = state.lastTelegramUpdateAt?.getTime() ?? 0
     
@@ -951,7 +1077,6 @@ export class StreamHandler {
 
     // Current tool status
     const runningTools = state.toolsInvoked.filter((t) => !t.completedAt)
-    const completedTools = state.toolsInvoked.filter((t) => t.completedAt)
 
     // In streaming mode, show status on one line at top
     if (streamingEnabled) {
@@ -994,8 +1119,10 @@ export class StreamHandler {
       const headerParts: string[] = []
       
       // Status indicator
-      if (runningTools.length > 0) {
-        headerParts.push("⏳ Working")
+      const toolCount = state.toolsInvoked.length
+      const runningCount = runningTools.length
+      if (runningCount > 0) {
+        headerParts.push(`🔧 ${runningCount}/${toolCount}`)
       } else if (state.isProcessing) {
         headerParts.push("💭 Thinking")
       } else {
@@ -1016,25 +1143,72 @@ export class StreamHandler {
         headerParts.push(`📊 ${tokenStr}`)
       }
       
+      // Model info (if available)
+      if (state.model?.modelID) {
+        const shortModel = state.model.modelID.length > 20 
+          ? state.model.modelID.slice(0, 20) + "..."
+          : state.model.modelID
+        headerParts.push(`🤖 ${shortModel}`)
+      }
+      
       parts.push(`<b>${headerParts.join(" • ")}</b>`)
       
-      // === Tools Section ===
-      if (state.toolsInvoked.length > 0) {
+      // === Reasoning/Thinking (si el modelo está pensando) ===
+      if (state.reasoning && state.reasoning.trim()) {
+        parts.push("")
+        parts.push("<i>🧠 Pensando:</i>")
+        // Show last 200 chars of reasoning (most recent)
+        const reasoningPreview = state.reasoning.trim().slice(-300)
+        parts.push(`<pre>${this.escapeHtml(reasoningPreview)}</pre>`)
+      }
+      
+      // === Tools Section (limitadas a 10 + más) - Bug #8 ===
+      const totalTools = state.toolsInvoked.length
+      const toolsToShow = state.toolsInvoked.slice(-10) // Últimas 10
+      const moreTools = totalTools > 10 ? totalTools - 10 : 0
+      
+      if (toolsToShow.length > 0) {
         parts.push("")
         parts.push("<b>Tools:</b>")
         
-        // Show all tools with status
-        for (const tool of state.toolsInvoked) {
+        // Show limited tools with status + args
+        for (const tool of toolsToShow) {
           const icon = tool.completedAt ? "✅" : "⏳"
-          const toolName = this.escapeHtml(tool.name)
+          
+          // Build display name with args for context
+          let displayName = this.escapeHtml(tool.name)
+          
+          // Try to extract useful args (path, query, etc.)
+          const args = tool.args
+          if (args) {
+            // For read tool: show path
+            if (args.path && typeof args.path === 'string') {
+              const shortPath = args.path.split('/').slice(-2).join('/')
+              displayName = `${tool.name} ${shortPath}`
+            } 
+            // For glob/grep: show query
+            else if (args.pattern || args.query) {
+              const query = (args.pattern || args.query) as string
+              displayName = `${tool.name} "${query.slice(0, 30)}"`
+            }
+            // For bash: show command preview
+            else if (args.command && typeof args.command === 'string') {
+              const cmdPreview = args.command.split(' ').slice(0, 3).join(' ')
+              displayName = `${tool.name} ${cmdPreview}`
+            }
+          }
           
           // Show title if available (completed tools often have a title)
           if (tool.title) {
             const title = this.escapeHtml(tool.title.slice(0, 50))
-            parts.push(`${icon} <code>${toolName}</code> - ${title}`)
+            parts.push(`${icon} <code>${displayName}</code> - ${title}`)
           } else {
-            parts.push(`${icon} <code>${toolName}</code>`)
+            parts.push(`${icon} <code>${displayName}</code>`)
           }
+        }
+        
+        if (moreTools > 0) {
+          parts.push(`... y ${moreTools} más`)
         }
       }
       
@@ -1067,7 +1241,8 @@ export class StreamHandler {
   /**
    * Escape HTML special characters
    */
-  private escapeHtml(text: string): string {
+  private escapeHtml(text: string | undefined): string {
+    if (!text) return ""
     return text
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
@@ -1099,6 +1274,7 @@ export class StreamHandler {
     return {
       sessionId,
       currentText: "",
+      reasoning: "",
       toolsInvoked: [],
       startedAt: new Date(),
       isProcessing: false,

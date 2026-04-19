@@ -1,9 +1,9 @@
 {
   "name": "opencode-telegram",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "Telegram bot that orchestrates multiple OpenCode instances through forum topics",
-  "author": "huynle",
+  "author": "huynle (forked)",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -30,13 +30,19 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "./node_modules/.bin/tsc --noEmit",
+    "lint": "./node_modules/.bin/tsc --noEmit",
+    "build": "bun build src/index.ts --outdir=dist --target=bun",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "install:deps": "npm install"
   },
   "dependencies": {
-    "grammy": "^1.21.0"
+    "grammy": "^1.42.0"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5.0.0"
+    "@types/bun": "^1.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^2.0.0"
   }
 }

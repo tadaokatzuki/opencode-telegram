@@ -194,11 +194,17 @@ export class OpenCodeClient {
     permissionId: string,
     response: "once" | "always" | "reject"
   ): Promise<boolean> {
-    const res = await this.fetch(`/session/${sessionId}/permissions/${permissionId}`, {
-      method: "POST",
-      body: JSON.stringify({ response }),
-    })
-    return res.json()
+    try {
+      const res = await this.fetch(`/session/${sessionId}/permissions/${permissionId}`, {
+        method: "POST",
+        body: JSON.stringify({ response }),
+      })
+      const text = await res.text()
+      if (!text) return true  // Empty response = success
+      return JSON.parse(text)
+    } catch {
+      return true  // On error, assume success and let the user continue
+    }
   }
 
   // ===========================================================================
@@ -288,10 +294,10 @@ export class OpenCodeClient {
   // SSE Subscription
   // ===========================================================================
 
-  /**
-   * Subscribe to SSE events from the OpenCode instance
+/**
+   * Subscribe to SSE events from OpenCode
    * 
-   * @param onEvent Callback for each event
+   * @param onEvent Callback for SSE events
    * @param onError Callback for errors
    * @returns Abort function to stop the subscription
    */
@@ -305,8 +311,8 @@ export class OpenCodeClient {
 
     const url = `${this.config.baseUrl}/event`
     
-    // Start the SSE connection
-    this.startSSE(url, onEvent, onError, this.sseAbortController.signal)
+    // Start the SSE connection with timeout
+    this.startSSEWithTimeout(url, onEvent, onError, this.sseAbortController.signal)
 
     // Return abort function
     return () => {
@@ -316,14 +322,61 @@ export class OpenCodeClient {
   }
 
   /**
-   * Internal SSE connection handler
+   * Start SSE with global timeout (60 seconds max for Termux stability)
+   */
+  private startSSEWithTimeout(
+    url: string,
+    onEvent: (event: SSEEvent) => void,
+    onError?: (error: Error) => void,
+    signal?: AbortSignal
+  ): void {
+    const TIMEOUT_MS = 300000 // 300 segundos (5 min) - necesario para respuestas largas
+    
+    // Crear AbortController local para el timeout
+    const timeoutController = new AbortController()
+    const timeoutSignal = timeoutController.signal
+    
+    // Timeout para cerrar conexión si dura demasiado
+    const timeoutId = setTimeout(() => {
+      console.log(`[OpenCodeClient] SSE timeout after ${TIMEOUT_MS}ms, aborting`)
+      timeoutController.abort()
+    }, TIMEOUT_MS)
+    
+    // Combinar señal externa con timeout de forma segura (compatible con Bun antiguo)
+    let combinedSignal: AbortSignal = timeoutSignal
+    if (signal) {
+      // Usar evento en lugar de AbortSignal.any() que puede no existir en Bun antiguo
+      signal.addEventListener("abort", () => {
+        timeoutController.abort()
+      })
+      combinedSignal = timeoutSignal
+    }
+    
+    // Wrapper para limpiar timeout en caso de éxito/error
+    const wrappedOnError = (error: Error) => {
+      clearTimeout(timeoutId)
+      onError?.(error)
+    }
+    
+    // Iniciar SSE
+    this.startSSE(url, onEvent, wrappedOnError, combinedSignal).finally(() => {
+      clearTimeout(timeoutId)
+    })
+  }
+
+  /**
+   * Internal SSE connection handler with auto-reconnect
    */
   private async startSSE(
     url: string,
     onEvent: (event: SSEEvent) => void,
     onError?: (error: Error) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    retryCount = 0
   ): Promise<void> {
+    const maxRetries = 5
+    const baseDelayMs = 1000
+    
     try {
       const response = await fetch(url, {
         headers: {
@@ -350,9 +403,28 @@ export class OpenCodeClient {
       let buffer = ""
 
       while (true) {
+        // Check if aborted BEFORE reading (critical for Termux)
+        if (signal?.aborted) {
+          console.log("[OpenCodeClient] SSE aborted, cancelling reader")
+          reader.cancel()
+          break
+        }
+        
         const { done, value } = await reader.read()
         
-        if (done) {
+        // Check again after read
+        if (signal?.aborted || done) {
+          // Stream ended - try to reconnect if not aborted
+          if (!signal?.aborted && retryCount < maxRetries) {
+            const delayMs = Math.min(baseDelayMs * Math.pow(2, retryCount), 30000)
+            console.log(`[OpenCodeClient] SSE stream ended, retrying in ${delayMs}ms (attempt ${retryCount + 1}/${maxRetries})`)
+            await new Promise(resolve => setTimeout(resolve, delayMs))
+            return this.startSSE(url, onEvent, onError, signal, retryCount + 1)
+          }
+          // If aborted or no more retries, cancel and break
+          if (signal?.aborted) {
+            reader.cancel()
+          }
           break
         }
 
@@ -360,7 +432,7 @@ export class OpenCodeClient {
         
         // Process complete events (separated by double newlines)
         const events = buffer.split("\n\n")
-        buffer = events.pop() ?? "" // Keep incomplete event in buffer
+        buffer = events.pop() ?? ""
 
         for (const eventStr of events) {
           if (!eventStr.trim()) continue
@@ -373,8 +445,16 @@ export class OpenCodeClient {
       }
     } catch (error) {
       if (signal?.aborted) {
-        // Normal abort, don't report as error
         return
+      }
+      
+      // Try to reconnect on network errors
+      if (retryCount < maxRetries && !signal?.aborted) {
+        const delayMs = Math.min(baseDelayMs * Math.pow(2, retryCount), 30000)
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        console.log(`[OpenCodeClient] SSE error: ${errorMsg}, retrying in ${delayMs}ms (attempt ${retryCount + 1}/${maxRetries})`)
+        await new Promise(resolve => setTimeout(resolve, delayMs))
+        return this.startSSE(url, onEvent, onError, signal, retryCount + 1)
       }
       
       const clientError = error instanceof OpenCodeClientError

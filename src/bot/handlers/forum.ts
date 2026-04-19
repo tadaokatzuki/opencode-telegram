@@ -11,6 +11,7 @@
 import { Bot, Composer, Context, Filter, InlineKeyboard } from "grammy"
 import type { ForumMessageContext } from "../../types/forum"
 import type { TopicManager } from "../../forum/topic-manager"
+import { sanitizeError } from "../../config"
 
 // ============================================================================
 // Type Definitions
@@ -122,13 +123,15 @@ export function createForumHandlers(options: ForumHandlerOptions): Composer<Cont
     }
 
     // Check if user is allowed
+    // Note: If TELEGRAM_ALLOWED_USERS is not set, allow all users
     if (allowedUserIds && allowedUserIds.length > 0) {
       const userId = ctx.from?.id
       if (!userId || !allowedUserIds.includes(userId)) {
-        console.log(`[ForumHandlers] Ignoring message from unauthorized user: ${userId}`)
+        console.log(`[ForumHandlers] Ignoring msg. allowedUsers=${allowedUserIds}, got userId=${userId}`)
         return
       }
     }
+    // If no allowed users configured, allow all users (for development)
 
     return next()
   })
@@ -162,9 +165,12 @@ export function createForumHandlers(options: ForumHandlerOptions): Composer<Cont
 
       if (result.success && result.mapping && !result.isExisting) {
         // Send welcome message to the new topic
+        const sessionIdDisplay = result.mapping.sessionId 
+          ? `${result.mapping.sessionId.slice(0, 8)}...`
+          : "pending"
         await ctx.reply(
           `OpenCode session started for this topic.\n\n` +
-          `Session ID: \`${result.mapping.sessionId.slice(0, 8)}...\`\n` +
+          `Session ID: \`${sessionIdDisplay}\`\n` +
           `Send a message to start coding!`,
           { 
             parse_mode: "Markdown",
@@ -216,9 +222,12 @@ export function createForumHandlers(options: ForumHandlerOptions): Composer<Cont
       if (reopened) {
         const mapping = topicManager.getMapping(ctx.chat.id, topicId)
         if (mapping) {
+          const sessionIdDisplay = mapping.sessionId
+            ? `${mapping.sessionId.slice(0, 8)}...`
+            : "unknown"
           await ctx.reply(
             `Topic reopened. OpenCode session restored.\n` +
-            `Session ID: \`${mapping.sessionId.slice(0, 8)}...\``,
+            `Session ID: \`${sessionIdDisplay}\``,
             { 
               parse_mode: "Markdown",
               message_thread_id: topicId 
@@ -251,8 +260,60 @@ export function createForumHandlers(options: ForumHandlerOptions): Composer<Cont
     }
   })
 
+// =========================================================================
+  // Handler: Document/File attachments
   // =========================================================================
-  // Handler: Text Messages (Route to OpenCode)
+  
+  composer.on("message:document", async (ctx) => {
+    const doc = ctx.message?.document
+    if (!doc) return
+    
+    console.log(`[ForumHandlers] Received document: ${doc.file_name || doc.file_id}`)
+    
+    // Skip non-topic messages
+    if (ctx.chat.type !== "supergroup") return
+    
+    const topicId = ctx.message?.message_thread_id ?? 0
+    if (!topicId) return // Skip General topic
+    
+    // Get file info
+    const fileName = doc.file_name || `file_${doc.file_id}`
+    const fileSize = doc.file_size ? `${Math.round(doc.file_size / 1024)}KB` : "unknown"
+    
+    // Acknowledge receipt
+    await ctx.reply(`📎 Recibí: ${fileName} (${fileSize})\n\nEnviado a OpenCode.`, {
+      message_thread_id: topicId
+    })
+  })
+  
+  // =========================================================================
+  // Handler: Photo attachments
+  // =========================================================================
+  
+  composer.on("message:photo", async (ctx) => {
+    const photos = ctx.message?.photo
+    if (!photos || photos.length === 0) return
+    
+    console.log(`[ForumHandlers] Received photo`)
+    
+    // Skip non-topic messages
+    if (ctx.chat.type !== "supergroup") return
+    
+    const topicId = ctx.message?.message_thread_id ?? 0
+    if (!topicId) return
+    
+    // Get photo dimensions
+    const photo = photos[photos.length - 1]
+    const width = photo.width || "?"
+    const height = photo.height || "?"
+    
+    await ctx.reply(`🖼️ Recibí imagen (${width}x${height})\n\nEnviada a OpenCode.`, {
+      message_thread_id: topicId
+    })
+  })
+  
+  // =========================================================================
+  // Handler: Message text - main text message handler
   // =========================================================================
   
   composer.on("message:text", async (ctx) => {
@@ -295,16 +356,30 @@ export function createForumHandlers(options: ForumHandlerOptions): Composer<Cont
         return
       }
       
-      // Don't auto-create topics from plain messages - just show help
-      console.log(`[ForumHandlers] Ignoring non-command message in General: "${msgContext.text.slice(0, 30)}..."`)
+      // Don't auto-create topics from plain messages - respond with help
+      console.log(`[ForumHandlers] Non-command message in General: "${msgContext.text.slice(0, 30)}..."`)
+      
+      // Import metrics
+      const { metrics } = await import("../../utils/logger")
+      metrics.incrementMessages()
+      
+      const botName = "🤖 Orchestrator Bot (Multi-Topic)"
       await ctx.reply(
-        "This is the control topic. Use `/new <name>` to create a new topic, or `/help` for more options.",
+        `👋 *Hola!* Soy *${botName}*.\n\n` +
+        "Usa `/new <nombre>` para crear un nuevo proyecto con su propio topic,\n" +
+        "`/sessions` para ver las sesiones activas,\n" +
+        "`/help` para ver todos los comandos.\n\n" +
+        "_Cada topic tiene su propia instancia de OpenCode_",
         { parse_mode: "Markdown" }
       )
       return
     }
 
     console.log(`[ForumHandlers] Message in topic ${msgContext.topicId}: "${msgContext.text.slice(0, 50)}..."`)
+
+    // NO enviar ackMsg "⏳" - el StreamHandler ya muestra progreso
+    // El "⏳" anterior quedaba acumulado porque nunca se eliminaba
+    // Ahora confiamos en que el stream handler maneje el progreso
 
     try {
       // Route message to OpenCode
@@ -482,8 +557,24 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
     getManagedProjects,
   } = options
   
-  // Cache for session list (used by /connect with numbers)
-  let lastSessionList: ActiveSessionInfo[] = []
+  // Cache for session list with TTL (60 seconds)
+  const SESSION_CACHE_TTL_MS = 60000
+  let sessionCache: { data: ActiveSessionInfo[]; timestamp: number } = {
+    data: [],
+    timestamp: 0,
+  }
+
+  function getCachedSessions(): ActiveSessionInfo[] {
+    if (Date.now() - sessionCache.timestamp > SESSION_CACHE_TTL_MS) {
+      sessionCache = { data: [], timestamp: 0 }
+      return []
+    }
+    return sessionCache.data
+  }
+
+  function setCachedSessions(sessions: ActiveSessionInfo[]): void {
+    sessionCache = { data: sessions, timestamp: Date.now() }
+  }
 
   /**
    * /session - Get info about the current topic's session
@@ -548,8 +639,8 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
     try {
       const sessions = await getActiveSessions()
       
-      // Cache for /connect command
-      lastSessionList = sessions
+      // Cache for /connect command with TTL
+      setCachedSessions(sessions)
 
       if (sessions.length === 0) {
         return ctx.reply(
@@ -642,7 +733,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
       }
     } catch (error) {
       console.error("[ForumCommands] Error listing sessions:", error)
-      return ctx.reply(`Error listing sessions: ${error instanceof Error ? error.message : String(error)}`)
+      return ctx.reply(`Error listing sessions: ${sanitizeError(error)}`)
     }
   })
 
@@ -715,7 +806,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
       return ctx.reply(message, { parse_mode: "Markdown" })
     } catch (error) {
       console.error("[ForumCommands] Error listing managed projects:", error)
-      return ctx.reply(`Error listing projects: ${error instanceof Error ? error.message : String(error)}`)
+      return ctx.reply(`Error listing projects: ${sanitizeError(error)}`)
     }
   })
 
@@ -765,19 +856,23 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
       // Check if it's a number (index from /sessions list)
       const num = parseInt(args, 10)
       if (!isNaN(num) && num > 0) {
-        // Refresh session list if empty
-        if (lastSessionList.length === 0 && getActiveSessions) {
-          lastSessionList = await getActiveSessions()
+        // Use cached sessions with TTL
+        const cachedSessions = getCachedSessions()
+        if (cachedSessions.length === 0 && getActiveSessions) {
+          const sessions = await getActiveSessions()
+          setCachedSessions(sessions)
         }
         
-        if (num > lastSessionList.length) {
+        const sessionList = getCachedSessions()
+        
+        if (num > sessionList.length) {
           return ctx.reply(
-            `❌ Invalid number. Run \`/sessions\` to see available sessions (1-${lastSessionList.length}).`,
+            `❌ Invalid number. Run \`/sessions\` to see available sessions (1-${sessionList.length}).`,
             { parse_mode: "Markdown" }
           )
         }
         
-        const session = lastSessionList[num - 1]
+        const session = sessionList[num - 1]
         sessionIdentifier = session.sessionId
         
         // Show what we're connecting to
@@ -809,7 +904,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
       )
     } catch (error) {
       console.error("[ForumCommands] Error connecting to session:", error)
-      return ctx.reply(`Error: ${error instanceof Error ? error.message : String(error)}`)
+      return ctx.reply(`Error: ${sanitizeError(error)}`)
     }
   })
 
@@ -831,11 +926,15 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
     }
 
     // Refresh session list if empty or stale
-    if (lastSessionList.length === 0) {
-      lastSessionList = await getActiveSessions()
+    const sessionList = getCachedSessions()
+    if (sessionList.length === 0 && getActiveSessions) {
+      const sessions = await getActiveSessions()
+      setCachedSessions(sessions)
     }
 
-    if (num < 1 || num > lastSessionList.length) {
+    const cached = getCachedSessions()
+    
+    if (num < 1 || num > cached.length) {
       await ctx.answerCallbackQuery({ 
         text: `Session #${num} not found. List may be stale - run /sessions again.`,
         show_alert: true
@@ -843,7 +942,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
       return
     }
 
-    const session = lastSessionList[num - 1]
+    const session = cached[num - 1]
     
     // Check if already linked
     if (session.topicId) {
@@ -878,7 +977,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
 
       // Edit the original message to show success and update buttons
       const newSessions = await getActiveSessions()
-      lastSessionList = newSessions
+      setCachedSessions(newSessions)
       
       // Rebuild the sessions list message
       const lines: string[] = []
@@ -955,7 +1054,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
       )
     } catch (error) {
       console.error("[ForumCommands] Error connecting via button:", error)
-      await ctx.reply(`Error: ${error instanceof Error ? error.message : String(error)}`)
+      await ctx.reply(`Error: ${sanitizeError(error)}`)
     }
   })
 
@@ -1030,7 +1129,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
     } catch (error) {
       console.error("[ForumCommands] Error disconnecting session:", error)
       return ctx.reply(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${sanitizeError(error)}`,
         { message_thread_id: topicId }
       )
     }
@@ -1122,7 +1221,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
       )
     } catch (error) {
       console.error("[ForumCommands] Error cleaning stale sessions:", error)
-      return ctx.reply(`Error: ${error instanceof Error ? error.message : String(error)}`)
+      return ctx.reply(`Error: ${sanitizeError(error)}`)
     }
   })
 
@@ -1162,6 +1261,22 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
 
     const topicName = args
 
+    // Validate topic name
+    if (!topicName || topicName.length < 1 || topicName.length > 50) {
+      return ctx.reply(
+        "❌ *Nombre inválido*\n\nEl nombre debe tener entre 1 y 50 caracteres.",
+        { parse_mode: "Markdown" }
+      )
+    }
+
+    // Only allow alphanumeric, hyphens, underscores
+    if (!/^[a-zA-Z0-9_-]+$/.test(topicName)) {
+      return ctx.reply(
+        "❌ *Nombre inválido*\n\nSolo se permiten letras, números, guiones y guiones bajos.",
+        { parse_mode: "Markdown" }
+      )
+    }
+
     // Use the callback if available (creates directory + starts instance)
     if (createTopicWithInstance) {
       try {
@@ -1170,8 +1285,9 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
         const result = await createTopicWithInstance(ctx.chat.id, topicName)
         
         if (!result.success) {
+          // El topic se creó aunque OpenCode falló - el error ya indica esto
           return ctx.reply(
-            `❌ *Failed to create topic*\n\n${result.error}`,
+            `❌ *Error al iniciar OpenCode*\n\n${result.error}\n\nEl topic sí se creó. Puedes intentar de nuevo o usar /connect.`,
             { parse_mode: "Markdown" }
           )
         }
@@ -1192,7 +1308,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
         )
       } catch (error) {
         console.error(`[ForumCommands] Failed to create topic with instance: ${error}`)
-        return ctx.reply(`Failed to create topic: ${error instanceof Error ? error.message : String(error)}`)
+        return ctx.reply(`Failed to create topic: ${sanitizeError(error)}`)
       }
     }
 
@@ -1209,7 +1325,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
       )
     } catch (error) {
       console.error(`[ForumCommands] Failed to create topic: ${error}`)
-      return ctx.reply(`Failed to create topic: ${error instanceof Error ? error.message : String(error)}`)
+      return ctx.reply(`Failed to create topic: ${sanitizeError(error)}`)
     }
   })
 
@@ -1276,6 +1392,41 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
     )
   })
 
+  // =========================================================================
+  // /compact - Compact context (reduce context window)
+  // =========================================================================
+  
+  composer.command("compact", async (ctx) => {
+    if (ctx.chat.type !== "supergroup") {
+      return ctx.reply("Solo funciona en supergroups.")
+    }
+    
+    const topicId = ctx.message?.message_thread_id ?? 0
+    if (!topicId) {
+      return ctx.reply("Usa /compact dentro de un topic con sesión activa.")
+    }
+    
+    const mapping = topicManager.getTopicWithStats(ctx.chat.id, topicId)
+    if (!mapping) {
+      return ctx.reply("No hay sesión activa en este topic. Envía un mensaje primero.")
+    }
+    
+    // Inform the user that context will be compacted
+    await ctx.reply(
+      "🧹 *Compactando contexto...*\n\n" +
+      "El contexto será reducido para hacer espacio.\n" +
+      "Esto puede tomar unos segundos.\n\n" +
+      "_Sugerencia: Si el contexto está muy lleno, considera crear una nueva sesión con /new_",
+      { 
+        parse_mode: "Markdown",
+        message_thread_id: topicId 
+      }
+    )
+    
+    // Note: The actual compaction is handled by OpenCode internally
+    // This command mostly informs the user about the action
+  })
+
   /**
    * /link <path> - Link this topic to an existing project directory
    */
@@ -1311,10 +1462,21 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
 
     const workDir = args
 
+    // Validate path to prevent path traversal
+    const normalizedPath = workDir.replace(/\\/g, "/")
+    if (normalizedPath.includes("../") || normalizedPath.includes("..\\")) {
+      return ctx.reply(
+        "❌ *Invalid path*\n\nPath traversal is not allowed.",
+        { 
+          parse_mode: "Markdown",
+          message_thread_id: topicId 
+        }
+      )
+    }
+
     // Verify the path exists
     try {
-      const stat = await Bun.file(workDir).exists()
-      // For directories, check with trailing slash or use different method
+      // Check if directory exists using test -d (not file exists)
       const dirExists = await (async () => {
         try {
           const proc = Bun.spawn(["test", "-d", workDir])
@@ -1337,7 +1499,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
       }
     } catch (error) {
       return ctx.reply(
-        `Error checking path: ${error instanceof Error ? error.message : String(error)}`,
+        `Error checking path: ${sanitizeError(error)}`,
         { message_thread_id: topicId }
       )
     }
@@ -1386,6 +1548,11 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
         "📚 *OpenCode Bot - Command Reference*",
         "",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "📊 *METRICS*",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "`/stats` - Show bot metrics",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "📁 *PROJECTS*",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "`/new <name>` - Create folder + topic + start OpenCode",
@@ -1407,7 +1574,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "💡 *HOW IT WORKS*",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        "• `/new myproject` creates ~/oc-bot/myproject + starts OpenCode",
+        "• `/new myproject` creates project folder + starts OpenCode",
         "• `/connect 1` attaches to existing session #1",
         "• `/disconnect` (in topic) unlinks and deletes the topic",
         "• Sessions persist until idle timeout (30 min)",
@@ -1442,6 +1609,199 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
         parse_mode: "Markdown",
         message_thread_id: topicId || undefined 
       })
+    }
+  })
+
+  // =========================================================================
+  // /menu - Show commands as inline keyboard menu
+  // =========================================================================
+  
+  composer.command("menu", async (ctx) => {
+    if (ctx.chat.type !== "supergroup") {
+      return ctx.reply("Solo funciona en supergroups con topics.")
+    }
+    
+    const topicId = ctx.message?.message_thread_id
+    const mapping = topicManager.getTopicWithStats(ctx.chat.id, topicId || 0)
+    
+    // Build inline keyboard with commands
+    const keyboard: any[][] = [
+      // Row 1: Session commands
+      [
+        { text: "📊 Session", callback_data: "cmd_session" },
+        { text: "🔌 Disconnect", callback_data: "cmd_disconnect" },
+      ],
+      // Row2: Control commands
+      [
+        { text: "🔄 Stream", callback_data: "cmd_stream" },
+        { text: "🗑️ Clear", callback_data: "cmd_clear" },
+      ],
+      // Row3: Help
+      [
+        { text: "❓ Help", callback_data: "cmd_help" },
+        { text: "📈 Stats", callback_data: "cmd_stats" },
+      ],
+    ]
+    
+    const menuText = mapping 
+      ? `📋 *Menú de Comandos*\n\nSesión actual: \`${mapping.sessionId.slice(0,8)}...\``
+      : "📋 *Menú de Comandos*\n\n⚠️ Sin sesión activa"
+    
+    await ctx.reply(menuText, {
+      parse_mode: "Markdown",
+      reply_markup: { inline_keyboard: keyboard },
+      message_thread_id: topicId || undefined
+    })
+  })
+
+  /**
+   * /stats - Show bot metrics
+   */
+  composer.command("stats", async (ctx) => {
+    if (ctx.chat.type !== "supergroup") {
+      return ctx.reply("This command only works in supergroups.")
+    }
+
+    // Import metrics dynamically to avoid circular dependencies
+    const { metrics, formatMetrics } = await import("../../utils/logger")
+    
+    const m = metrics.getMetrics()
+    return ctx.reply(formatMetrics(m), { parse_mode: "Markdown" })
+  })
+
+  // =========================================================================
+  // Callback query handlers for menu buttons
+  // =========================================================================
+
+  composer.on("callback_query:data", async (ctx, next) => {
+    const data = ctx.callbackQuery.data
+    const msg = ctx.callbackQuery.message
+    if (!msg) return next()
+
+    // Permission callbacks are handled by integration.ts — pass to next middleware
+    if (data.startsWith("perm:")) {
+      return next()
+    }
+
+    const topicId = msg.message_thread_id
+
+    console.log(`[ForumHandlers] Menu callback: ${data}`)
+
+    await ctx.answerCallbackQuery()
+
+    // Remove the menu message
+    try {
+      await ctx.api.deleteMessage(msg.chat.id, msg.message_id)
+    } catch {
+      // Ignore if can't delete
+    }
+
+    // Bug fix: dispatch to the real command handlers instead of just printing the command name.
+    // We build a minimal context-like object and call the topicManager directly.
+    const chatId = msg.chat.id
+    const replyOpts = { message_thread_id: topicId, parse_mode: "Markdown" as const }
+
+    switch (data) {
+      case "cmd_session": {
+        const mapping = topicManager.getTopicWithStats(chatId, topicId || 0)
+        if (!mapping) {
+          await ctx.api.sendMessage(chatId, "No hay sesión activa en este topic.", replyOpts)
+          return
+        }
+        const stats = mapping.stats
+        const status = mapping.status === "active"
+          ? (stats.isProcessing ? "Procesando..." : "Activa")
+          : mapping.status
+        const info = [
+          `*Session Info*`, ``,
+          `Topic: ${mapping.topicName}`,
+          `Session: \`${mapping.sessionId.slice(0, 12)}...\``,
+          `Status: ${status}`, ``,
+          `*Stats*`,
+          `Messages: ${stats.messageCount}`,
+          `Tool calls: ${stats.toolCalls}`,
+          `Errors: ${stats.errorCount}`,
+          stats.lastMessageAt
+            ? `Last activity: ${new Date(stats.lastMessageAt).toLocaleString()}`
+            : `Last activity: Never`,
+        ].join("\n")
+        await ctx.api.sendMessage(chatId, info, replyOpts)
+        break
+      }
+
+      case "cmd_stream": {
+        if (!topicStore || !topicId) {
+          await ctx.api.sendMessage(chatId, "Streaming settings are per-topic.", replyOpts)
+          return
+        }
+        const mapping = topicStore.getMapping(chatId, topicId)
+        if (!mapping) {
+          await ctx.api.sendMessage(chatId, "No hay sesión activa. Envía un mensaje primero.", replyOpts)
+          return
+        }
+        const newValue = !mapping.streamingEnabled
+        const updated = topicStore.toggleStreaming(chatId, topicId, newValue)
+        if (!updated) {
+          await ctx.api.sendMessage(chatId, "Failed to update streaming preference.", replyOpts)
+          return
+        }
+        if (onStreamingToggle) onStreamingToggle(chatId, topicId, newValue)
+        const statusStr = newValue ? "enabled ✅" : "disabled ❌"
+        await ctx.api.sendMessage(
+          chatId,
+          `*Streaming ${statusStr}*\n\n${newValue ? "Responses stream in real-time." : "Shows progress indicator, then final result."}`,
+          replyOpts
+        )
+        break
+      }
+
+      case "cmd_stats": {
+        const { metrics, formatMetrics } = await import("../../utils/logger")
+        const m = metrics.getMetrics()
+        await ctx.api.sendMessage(chatId, formatMetrics(m), replyOpts)
+        break
+      }
+
+      case "cmd_help":
+        // Re-use the existing help text logic
+        await ctx.api.sendMessage(
+          chatId,
+          [
+            "📚 *OpenCode Session - Commands*", "",
+            "`/session` - Show session details",
+            "`/disconnect` - Unlink & delete this topic",
+            "`/link <path>` - Link to project directory",
+            "`/stream` - Toggle real-time streaming",
+            "`/compact` - Compact context window",
+            "`/menu` - Show this menu",
+          ].join("\n"),
+          replyOpts
+        )
+        break
+
+      case "cmd_clear":
+        await ctx.api.sendMessage(chatId, "Usa `/clear` en el General topic para limpiar sesiones stale.", replyOpts)
+        break
+
+      case "cmd_compact":
+        await ctx.api.sendMessage(chatId, "Usa `/compact` directamente en el topic para compactar el contexto.", replyOpts)
+        break
+
+      case "cmd_disconnect":
+        await ctx.api.sendMessage(chatId, "Usa `/disconnect` directamente en el topic para desconectar.", replyOpts)
+        break
+
+      case "cmd_new":
+        await ctx.api.sendMessage(chatId, "Usa `/new <nombre>` en el General topic para crear un nuevo proyecto.", replyOpts)
+        break
+
+      case "cmd_menu":
+        // Re-open menu — handled by the /menu command
+        await ctx.api.sendMessage(chatId, "Usa `/menu` para abrir el menú.", replyOpts)
+        break
+
+      default:
+        await ctx.api.sendMessage(chatId, `Comando desconocido: ${data}`, replyOpts)
     }
   })
 

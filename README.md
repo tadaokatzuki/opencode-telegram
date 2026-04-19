@@ -1,4 +1,4 @@
-# OpenCode Telegram Integration
+# OpenCode Telegram Integration (v0.6.0)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/Bun-%23000000.svg?logo=bun&logoColor=white)](https://bun.sh)
@@ -7,7 +7,7 @@
 
 A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instances through forum topics. Each forum topic in a Telegram supergroup gets its own dedicated OpenCode instance, enabling multi-user/multi-project AI assistance.
 
-## Features
+## Features (v0.6.0)
 
 - **Forum Topic to OpenCode Instance**: Each topic gets a dedicated OpenCode session
 - **Real-time Streaming**: SSE events from OpenCode are streamed to Telegram as editable messages
@@ -15,6 +15,11 @@ A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instan
 - **Instance Lifecycle Management**: Auto-start, health checks, crash recovery, idle timeout
 - **Persistent State**: SQLite databases track topic mappings and instance state across restarts
 - **Permission Handling**: Approve/deny dangerous operations via inline buttons
+- **Better Status**: Shows model, tokens, time, and tools in progress messages
+- **File Attachments**: Receive documents and photos from users
+- **Commands Menu**: Inline keyboard with common commands (/menu)
+- **Context Compact**: Command to compact context when needed (/compact)
+- **Debug Topic**: Separate topic for debug/process logs
 
 ## Table of Contents
 
@@ -35,6 +40,19 @@ A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instan
 - [Bun](https://bun.sh) runtime (v1.0+)
 - [OpenCode](https://opencode.ai) CLI installed
 - Telegram account
+
+### Dependencias del Sistema
+
+```bash
+# Instalar Bun
+curl -fsSL https://bun.sh/install | bash
+
+# Verificar instalación
+bun --version
+
+# Instalar OpenCode
+curl -fsSL https://opencode.ai/install.sh | bash
+```
 
 ### 1. Create a Telegram Bot
 
@@ -57,29 +75,114 @@ The chat ID for supergroups starts with `-100`. You can find it by:
 2. It will show the chat ID in its message
 3. Remove the bot after getting the ID
 
+### 4. Get Your User ID
+
+Your Telegram user ID is needed for the allowed users list:
+
+1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
+2. It will reply with your ID number (e.g., `1234567890`)
+
+### 5. Configure Environment Variables
+
+```bash
+# Copiar ejemplo
+cp .env.example .env
+
+# Editar con tus datos
+nano .env
+```
+
+### Variables Requeridas
+
+| Variable | Cómo obtener | Ejemplo |
+|----------|--------------|---------|
+| `TELEGRAM_BOT_TOKEN` | @BotFather | `1234567890:ABCdefGHIjklMNOpqrsTUVwxyz` |
+| `TELEGRAM_CHAT_ID` | @RawDataBot | `-1001234567890` |
+| `TELEGRAM_ALLOWED_USERS` | @userinfobot | `1234567890` |
+
+### Variables Opcionales
+
+| Variable | Default | Descripción |
+|----------|---------|-------------|
+| `PROJECT_BASE_PATH` | `~/oc-bot` | Directorio base para proyectos |
+| `OPENCODE_PATH` | `opencode` | Path al binario de OpenCode |
+| `OPENCODE_MAX_INSTANCES` | `5` | Instancias máximas |
+| `OPENCODE_PORT_START` | `5100` | Puerto inicial |
+| `OPENCODE_IDLE_TIMEOUT_MS` | `1800000` | Timeout inactivo (30 min) |
+| `API_PORT` | `4200` | Puerto del API server |
+
 ### 4. Install and Configure
 
 ```bash
-# Clone the repository
+# Clonar el repositorio
 git clone https://github.com/huynle/opencode-telegram.git
 cd opencode-telegram
 
-# Install dependencies
+# Instalar dependencias
 bun install
 
-# Configure environment
+# Configurar entorno
 cp .env.example .env
-# Edit .env with your bot token and chat ID
+# Edit .env con tu bot token y chat ID
 ```
 
-### 5. Run the Bot
+### 5. Ejecutar el Bot
 
 ```bash
-# Development with hot reload
+# Desarrollo con hot reload
 bun run dev
 
-# Production
+# Producción
 bun run start
+```
+
+---
+
+## Instalación desde Cero
+
+### Paso a Paso
+
+```bash
+# 1. Instalar Bun
+curl -fsSL https://bun.sh/install | bash
+
+# 2. Verificar Bun
+bun --version
+
+# 3. Instalar OpenCode
+curl -fsSL https://opencode.ai/install.sh | bash
+
+# 4. Clonar el proyecto
+git clone https://github.com/huynle/opencode-telegram.git
+cd opencode-telegram
+
+# 5. Instalar dependencias
+bun install
+
+# 6. Crear archivo de configuración
+cp .env.example .env
+
+# 7. Configurar variables de entorno
+nano .env  # o tu editor preferido
+
+# 8. Iniciar el bot
+bun run dev
+```
+
+### Archivo .env example
+
+```bash
+# Requerido
+TELEGRAM_BOT_TOKEN=tu-token-aqui
+TELEGRAM_CHAT_ID=-100xxxxxxxxx
+
+# Opcional
+PROJECT_BASE_PATH=~/oc-bot
+OPENCODE_PATH=opencode
+OPENCODE_MAX_INSTANCES=5
+OPENCODE_PORT_START=5100
+OPENCODE_IDLE_TIMEOUT_MS=1800000
+API_PORT=4200
 ```
 
 ## Running with Docker
@@ -233,6 +336,7 @@ These commands work in the General topic of your supergroup:
 | `/connect <name>` | Connect to an existing session by name or ID |
 | `/clear` | Clean up stale topic mappings |
 | `/status` | Show orchestrator status |
+| `/stats` | Show bot metrics |
 | `/help` | Show context-aware help |
 
 ### Topic Commands (Inside a Session)
@@ -245,6 +349,8 @@ These commands work inside individual topic threads:
 | `/link <path>` | Link topic to existing project directory |
 | `/stream` | Toggle real-time streaming on/off |
 | `/disconnect` | Disconnect session and delete topic |
+| `/compact` | Compact context (reduce context window) |
+| `/menu` | Show commands menu (inline keyboard) |
 | `/help` | Show context-aware help |
 
 ### Session Discovery
@@ -462,8 +568,107 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+---
 
-- [OpenCode](https://opencode.ai) - The AI coding assistant this bot integrates with
-- [grammY](https://grammy.dev/) - The Telegram Bot framework
-- [Bun](https://bun.sh) - The JavaScript runtime
+## Créditos / Credits
+
+### Autor y Mantenedor
+
+- ** forked from**: Original project by [@huynle](https://github.com/huynle)
+- ** current version**: v0.6.0 - Enhanced with new features
+
+### Librerías y Dependencias
+
+| Librería | Uso | Licencia |
+|----------|-----|---------|
+| [grammY](https://grammy.dev/) | Bot de Telegram | MIT |
+| [Bun](https://bun.sh/) | Runtime de JavaScript | GPL-3.0 |
+| [TypeScript](https://www.typescriptlang.org/) | Type checking | Apache 2.0 |
+| [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | Base de datos local | MIT |
+| [undici](https://undici.nodejs.org/) | Cliente HTTP/Fetch | MIT |
+
+### Proyectos de Referencia (Inspiración)
+
+| Proyecto | Descripción | Relevante para |
+|----------|-------------|---------------|
+| [grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot) | Bot avanzado con scheduled tasks, voice, model switching | ✅ Scheduled tasks |
+| [HNGM-HP/opencode-bridge](https://github.com/HNGM-HP/opencode-bridge) | Bridge multi-plataforma (Telegram, Discord, WeCom, etc.) | ✅ Features empresariales |
+| [tommertom/opencode-telegram](https://github.com/Tommertom/opencode-telegram) | Terminal PTY interactivo | ❌ No comparable |
+| [tommertom/opencoder-telegram-plugin](https://github.com/Tommertom/opencoder-telegram-plugin) | Plugin de notificaciones OpenCode | ❌ No comparable |
+
+---
+
+## Resumen de Modificaciones
+
+### Nuevas Features Agregadas
+
+- 🏠 **Forum Topics** - Múltiples proyectos en un solo chat
+- 🔄 **Auto-retry** - Reintento automático con exponential backoff (3 intentos)
+- 📊 **Métricas** - Comando `/stats` para ver usage
+- 📝 **Logging** - timestamps y logging estructurado
+- 📢 **Alertas** - Notificaciones de errores a Telegram
+- 💬 **Responder a mensajes simples** - Bienvenida automática en General topic
+
+### Comandos Nuevos
+
+| Comando | Descripción |
+|---------|-------------|
+| `/stats` | Ver métricas del bot |
+| `/help` | Ayuda con todos los comandos |
+
+---
+
+## License
+
+MIT © 2026
+
+---
+
+## 🐛 Bugs Corregidos (v0.2.0)
+
+### Críticos
+
+| # | Bug | Archivo | Fix |
+|---|-----|---------|-----|
+| 1 | Código muerto tras return en rate limit | `stream-handler.ts` | Eliminado return, agregado delay 5s antes del retry |
+| 2 | Doble shutdown handler | `manager.ts` | Eliminado setupShutdownHandlers() del Manager |
+| 3 | Binary path hardcodeado | `instance.ts` | Usa this.config.opencodePath |
+| 4 | Race condition en createTopicWithInstance | `integration.ts` | Crea mapping solo con sessionId real |
+| 5 | SSE sin reconexión | `client.ts` | Retry con backoff exponencial (5 intentos) |
+
+### Menores
+
+| # | Bug | Archivo | Fix |
+|---|-----|---------|-----|
+| 6 | stat variable sin usar | `forum.ts` | Eliminada |
+| 7 | RATE_LIMIT_MAX_MESSAGES sin usar | `integration.ts` | Ahora usa contador de ventana |
+| 8 | ps aux frágil | `discovery.ts` | Usa ps -eo pid,comm,args con parsing preciso |
+| 9 | isValidPath no bloqueaba sensibles | `api-server.ts` | Retorna false para rutas bloqueadas |
+| 10 | lastSessionList stale | `forum.ts` | Agregado TTL de 60s |
+| 11 | closeForumTopic vs deleteForumTopic | `integration.ts` | Cambiado a deleteForumTopic |
+| 12 | externalPort crea duplicados | `integration.ts` | Check + cleanup antes de crear suscripción |
+
+---
+
+## 🚀 Nuevas Features (v0.2.0)
+
+- Auto-retry con exponential backoff (3 intentos al iniciar)
+- Comando /stats - Métricas del bot
+- Logging con timestamps
+- Alertas automáticas de errores a Telegram
+- Bienvenida automática en General topic
+- Cache de sesiones con TTL de 60s
+- Limpieza de topics al fallar inicio
+
+---
+
+## 📦 Instalación de Dependencias
+
+```bash
+# Actualizar dependencias
+bun install
+
+# Verificar versiones
+bun -v
+tsc --version
+```

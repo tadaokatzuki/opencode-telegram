@@ -130,63 +130,115 @@ export class OpenCodeInstance {
     console.log(`[Instance:${id}] Starting on port ${this.instance.port}...`)
     this.setState("starting")
     
-    try {
-      // Clean up any stale process on this port before starting
-      await this.cleanupPort()
+    // Retry configuration
+    const maxRetries = 3
+    const baseDelayMs = 1000
+    let attempt = 0
+    
+    while (attempt < maxRetries) {
+      attempt++
       
-      // Build command and args
-      const command = this.config.opencodePath
-      const args = ["serve", "--port", String(this.instance.port)]
-      
-      console.log(`[Instance:${id}] Spawning: ${command} ${args.join(" ")}`)
-      console.log(`[Instance:${id}] Working directory: ${this.instance.config.workDir}`)
-      
-      // Spawn the process
-      const proc = Bun.spawn([command, ...args], {
-        cwd: this.instance.config.workDir,
-        env: {
-          ...process.env,
-          ...this.instance.config.env,
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-        // Don't use onExit - we'll handle process termination ourselves
-      })
-      
-      this.instance.process = proc
-      this.instance.pid = proc.pid
-      this.instance.startedAt = new Date()
-      this.instance.lastActivityAt = new Date()
-      
-      console.log(`[Instance:${id}] Process spawned with PID ${proc.pid}`)
-      
-      // Set up output logging (async, non-blocking)
-      this.pipeOutput(proc)
-      
-      // Monitor process exit
-      this.monitorProcess(proc)
-      
-      // Wait for health check with timeout
-      const healthy = await this.waitForHealthy()
-      
-      if (healthy) {
-        console.log(`[Instance:${id}] Started successfully`)
-        this.startHealthCheckTimer()
-        this.startIdleTimer()
-        return true
-      } else {
-        console.log(`[Instance:${id}] Failed health check during startup`)
-        this.setState("failed", { error: "Health check timeout during startup" })
-        await this.stop()
-        return false
+      try {
+        // Validate binary path - use which directly instead of test -f
+        let binaryPath = this.config.opencodePath
+        const whichResult = await Bun.$`which ${binaryPath}`.text()
+        if (!whichResult.trim()) {
+          throw new Error(`OpenCode binary not found: ${this.config.opencodePath}`)
+        }
+        binaryPath = whichResult.trim()
+        console.log(`[Instance:${id}] Found binary at: ${binaryPath}`)
+        
+        // Clean up any stale process on this port before starting
+        await this.cleanupPort()
+        
+// Build command and args - use config path
+        const args = ["serve", "--port", String(this.instance.port)]
+        
+        // Use the resolved binary path from earlier validation
+        
+        console.log(`[Instance:${id}] Spawning (attempt ${attempt}/${maxRetries}): ${binaryPath} ${args.join(" ")}`)
+        console.log(`[Instance:${id}] Working directory: ${this.instance.config.workDir}`)
+        
+        // Filter environment variables - only pass safe ones
+        const safeEnvVars = [
+          "HOME", "USER", "PATH", "SHELL", "TERM", "TMPDIR", "TEMP", "TMP",
+          "LANG", "LC_ALL", "LC_CTYPE", "XDG_RUNTIME_DIR", "XDG_CONFIG_DIRS", "XDG_CONFIG_HOME",
+          // Allow instance-specific env overrides
+        ]
+        
+        const filteredEnv: Record<string, string | undefined> = {}
+        for (const key of safeEnvVars) {
+          if (process.env[key] !== undefined) {
+            filteredEnv[key] = process.env[key]
+          }
+        }
+        
+        // Merge with any instance-specific env
+        const instanceEnv = this.instance.config.env || {}
+        
+        // Spawn the process
+        const proc = Bun.spawn([binaryPath, ...args], {
+          cwd: this.instance.config.workDir,
+          env: {
+            ...filteredEnv,
+            ...instanceEnv,
+          },
+          stdout: "pipe",
+          stderr: "pipe",
+        })
+        
+        this.instance.process = proc
+        this.instance.pid = proc.pid
+        this.instance.startedAt = new Date()
+        this.instance.lastActivityAt = new Date()
+        
+        console.log(`[Instance:${id}] Process spawned with PID ${proc.pid}`)
+        
+        // Set up output logging (async, non-blocking)
+        this.pipeOutput(proc)
+        
+        // Monitor process exit
+        this.monitorProcess(proc)
+        
+        // Wait for health check with timeout
+        const healthy = await this.waitForHealthy()
+        
+        if (healthy) {
+          console.log(`[Instance:${id}] Started successfully`)
+          this.startHealthCheckTimer()
+          this.startIdleTimer()
+          return true
+        } else {
+          console.log(`[Instance:${id}] Failed health check during startup (attempt ${attempt}/${maxRetries})`)
+          this.setState("failed", { error: "Health check timeout during startup" })
+          await this.stop()
+          
+          // Retry with exponential backoff
+          if (attempt < maxRetries) {
+            const delayMs = baseDelayMs * Math.pow(2, attempt - 1)
+            console.log(`[Instance:${id}] Retrying in ${delayMs}ms...`)
+            await new Promise(resolve => setTimeout(resolve, delayMs))
+          }
+        }
+        
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        console.error(`[Instance:${id}] Failed to start (attempt ${attempt}/${maxRetries}): ${errorMsg}`)
+        this.setState("failed", { error: errorMsg })
+        
+        // Retry with exponential backoff
+        if (attempt < maxRetries) {
+          const delayMs = baseDelayMs * Math.pow(2, attempt - 1)
+          console.log(`[Instance:${id}] Retrying in ${delayMs}ms...`)
+          await this.stop()
+          await new Promise(resolve => setTimeout(resolve, delayMs))
+        }
       }
-      
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      console.error(`[Instance:${id}] Failed to start: ${errorMsg}`)
-      this.setState("failed", { error: errorMsg })
-      return false
     }
+    
+    console.error(`[Instance:${id}] Failed to start after ${maxRetries} attempts`)
+    this.setState("failed", { error: `Failed after ${maxRetries} attempts` })
+    return false
   }
   
   /**
@@ -222,7 +274,7 @@ export class OpenCodeInstance {
         // Wait up to 5 seconds for graceful shutdown
         const gracefulTimeout = 5000
         const exited = await Promise.race([
-          proc.exited.then(() => true),
+          proc.exited.then(() => true).catch(() => true),
           new Promise<false>(resolve => setTimeout(() => resolve(false), gracefulTimeout)),
         ])
         
@@ -251,7 +303,7 @@ export class OpenCodeInstance {
    */
   async healthCheck(): Promise<HealthCheckResult> {
     const id = this.instanceId
-    const url = `http://localhost:${this.instance.port}/session`
+    const url = `http://127.0.0.1:${this.instance.port}/session`
     const start = Date.now()
     
     try {
@@ -391,54 +443,62 @@ export class OpenCodeInstance {
   private pipeOutput(proc: ReturnType<typeof Bun.spawn>): void {
     const id = this.instanceId
     
-    // Stream stdout - check it's a ReadableStream, not a file descriptor
+// Stream stdout - check it's a ReadableStream, not locked
     const stdout = proc.stdout
     if (stdout && typeof stdout !== "number") {
-      (async () => {
+      try {
         const reader = stdout.getReader()
         const decoder = new TextDecoder()
         
-        try {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            
-            const text = decoder.decode(value)
-            for (const line of text.split("\n")) {
-              if (line.trim()) {
-                console.log(`[Instance:${id}:stdout] ${line}`)
+        ;(async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              
+              const text = decoder.decode(value)
+              for (const line of text.split("\n")) {
+                if (line.trim()) {
+                  console.log(`[Instance:${id}:stdout] ${line}`)
+                }
               }
             }
+          } catch {
+            // Stream closed, ignore
           }
-        } catch {
-          // Stream closed, ignore
-        }
-      })()
+        })()
+      } catch {
+        // Reader not available, ignore
+      }
     }
     
-    // Stream stderr - check it's a ReadableStream, not a file descriptor
+    // Stream stderr - check it's a ReadableStream, not locked
     const stderr = proc.stderr
     if (stderr && typeof stderr !== "number") {
-      (async () => {
+      try {
         const reader = stderr.getReader()
         const decoder = new TextDecoder()
         
-        try {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            
-            const text = decoder.decode(value)
-            for (const line of text.split("\n")) {
-              if (line.trim()) {
-                console.error(`[Instance:${id}:stderr] ${line}`)
+        ;(async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              
+              const text = decoder.decode(value)
+              for (const line of text.split("\n")) {
+                if (line.trim()) {
+                  console.error(`[Instance:${id}:stderr] ${line}`)
+                }
               }
             }
+          } catch {
+            // Stream closed, ignore
           }
-        } catch {
-          // Stream closed, ignore
-        }
-      })()
+        })()
+      } catch {
+        // Reader not available, ignore
+      }
     }
   }
   

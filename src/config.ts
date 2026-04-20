@@ -205,24 +205,24 @@ opencode: {
 /**
  * Validate that the OpenCode binary exists and is executable
  */
+import rt from "./runtime"
+
 export async function validateOpenCodeBinary(binaryPath: string): Promise<{ valid: boolean; error?: string }> {
   try {
-    const file = Bun.file(binaryPath)
+    const file = rt.file(binaryPath)
     if (!await file.exists()) {
-      // Try to find it in PATH
-      const which = await Bun.$`which ${binaryPath}`.text()
+      const which = await rt.$.text`which ${binaryPath}`
       if (!which.trim()) {
         return { valid: false, error: `OpenCode binary not found: ${binaryPath}` }
       }
       return { valid: true }
     }
     
-    // Check if executable
     try {
-      await Bun.$`test -x ${binaryPath}`.quiet()
+      await rt.$.quiet`test -x ${binaryPath}`
       return { valid: true }
     } catch {
-      return { valid: true } // May work without executable bit on some systems
+      return { valid: true }
     }
   } catch (error) {
     return { valid: false, error: error instanceof Error ? error.message : "Unknown error" }

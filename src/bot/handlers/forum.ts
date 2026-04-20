@@ -12,6 +12,7 @@ import { Bot, Composer, Context, Filter, InlineKeyboard } from "grammy"
 import type { ForumMessageContext } from "../../types/forum"
 import type { TopicManager } from "../../forum/topic-manager"
 import { sanitizeError } from "../../config"
+import rt from "../../runtime"
 
 // ============================================================================
 // Type Definitions
@@ -1479,7 +1480,7 @@ export function createForumCommands(topicManagerOrOptions: TopicManager | ForumC
       // Check if directory exists using test -d (not file exists)
       const dirExists = await (async () => {
         try {
-          const proc = Bun.spawn(["test", "-d", workDir])
+          const proc = rt.spawn(["test", "-d", workDir])
           await proc.exited
           return proc.exitCode === 0
         } catch {

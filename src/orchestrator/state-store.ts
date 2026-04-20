@@ -32,7 +32,6 @@ export class StateStore {
    * Creates tables if they don't exist
    */
   private initSchema(): void {
-    // Instance state table
     this.db.run(`
       CREATE TABLE IF NOT EXISTS instances (
         instance_id TEXT PRIMARY KEY,
@@ -52,7 +51,6 @@ export class StateStore {
       )
     `)
     
-    // Port allocations table (for recovery)
     this.db.run(`
       CREATE TABLE IF NOT EXISTS port_allocations (
         port INTEGER PRIMARY KEY,
@@ -62,12 +60,10 @@ export class StateStore {
       )
     `)
     
-    // Index for efficient topic lookups
     this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_instances_topic_id ON instances(topic_id)
     `)
     
-    // Index for state queries
     this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_instances_state ON instances(state)
     `)
@@ -83,40 +79,33 @@ export class StateStore {
    * Save instance state (insert or update)
    */
   saveInstance(state: PersistedInstanceState): void {
-    const stmt = this.db.prepare(`
-      INSERT INTO instances (
-        instance_id, topic_id, port, work_dir, name, session_id,
-        state, pid, started_at, last_activity_at, restart_count, env, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(instance_id) DO UPDATE SET
-        topic_id = excluded.topic_id,
-        port = excluded.port,
-        work_dir = excluded.work_dir,
-        name = excluded.name,
-        session_id = excluded.session_id,
-        state = excluded.state,
-        pid = excluded.pid,
-        started_at = excluded.started_at,
-        last_activity_at = excluded.last_activity_at,
-        restart_count = excluded.restart_count,
-        env = excluded.env,
-        updated_at = CURRENT_TIMESTAMP
-    `)
-    
-    stmt.run(
-      state.instanceId,
-      state.topicId,
-      state.port,
-      state.workDir,
-      state.name ?? null,
-      state.sessionId ?? null,
-      state.state,
-      state.pid ?? null,
-      state.startedAt ?? null,
-      state.lastActivityAt ?? null,
-      state.restartCount,
-      state.env ?? null
-    )
+    const existing = this.getInstance(state.instanceId)
+    if (existing) {
+      const stmt = this.db.prepare(`
+        UPDATE instances SET
+          topic_id = ?, port = ?, work_dir = ?, name = ?, session_id = ?,
+          state = ?, pid = ?, started_at = ?, last_activity_at = ?,
+          restart_count = ?, env = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE instance_id = ?
+      `)
+      stmt.run(
+        state.topicId, state.port, state.workDir, state.name ?? null, state.sessionId ?? null,
+        state.state, state.pid ?? null, state.startedAt ?? null, state.lastActivityAt ?? null,
+        state.restartCount, state.env ?? null, state.instanceId
+      )
+    } else {
+      const stmt = this.db.prepare(`
+        INSERT INTO instances (
+          instance_id, topic_id, port, work_dir, name, session_id,
+          state, pid, started_at, last_activity_at, restart_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      stmt.run(
+        state.instanceId, state.topicId, state.port, state.workDir, state.name ?? null, state.sessionId ?? null,
+        state.state, state.pid ?? null, state.startedAt ?? null, state.lastActivityAt ?? null,
+        state.restartCount
+      )
+    }
     
     console.log(`[StateStore] Saved instance ${state.instanceId} (state: ${state.state})`)
   }
@@ -226,15 +215,14 @@ export class StateStore {
    * Increment restart count
    */
   incrementRestartCount(instanceId: string): number {
-    const stmt = this.db.prepare(`
+    this.db.prepare(`
       UPDATE instances
       SET restart_count = restart_count + 1, updated_at = CURRENT_TIMESTAMP
       WHERE instance_id = ?
-      RETURNING restart_count
-    `)
+    `).run(instanceId)
     
-    const result = stmt.get(instanceId) as { restart_count: number } | null
-    return result?.restart_count ?? 0
+    const row = this.db.prepare("SELECT restart_count FROM instances WHERE instance_id = ?").get(instanceId) as any
+    return row?.restart_count ?? 0
   }
   
   /**
@@ -275,15 +263,16 @@ export class StateStore {
    * Save port allocation
    */
   savePortAllocation(allocation: PersistedPortAllocation): void {
-    const stmt = this.db.prepare(`
-      INSERT INTO port_allocations (port, instance_id, allocated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(port) DO UPDATE SET
-        instance_id = excluded.instance_id,
-        allocated_at = excluded.allocated_at
-    `)
-    
-    stmt.run(allocation.port, allocation.instanceId, allocation.allocatedAt)
+    const existing = this.db.prepare("SELECT port FROM port_allocations WHERE port = ?").get(allocation.port)
+    if (existing) {
+      this.db.prepare(`
+        UPDATE port_allocations SET instance_id = ?, allocated_at = ? WHERE port = ?
+      `).run(allocation.instanceId, allocation.allocatedAt, allocation.port)
+    } else {
+      this.db.prepare(`
+        INSERT INTO port_allocations (port, instance_id, allocated_at) VALUES (?, ?, ?)
+      `).run(allocation.port, allocation.instanceId, allocation.allocatedAt)
+    }
   }
   
   /**

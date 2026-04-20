@@ -21,6 +21,7 @@ import type {
   HealthCheckResult,
   ManagerConfig,
 } from "../types/orchestrator"
+import rt from "../runtime"
 
 /**
  * Callback for instance state changes
@@ -139,13 +140,19 @@ export class OpenCodeInstance {
       attempt++
       
       try {
-        // Validate binary path - use which directly instead of test -f
+        // Validate binary path
         let binaryPath = this.config.opencodePath
-        const whichResult = await Bun.$`which ${binaryPath}`.text()
-        if (!whichResult.trim()) {
-          throw new Error(`OpenCode binary not found: ${this.config.opencodePath}`)
+        
+        // Check if path is absolute or exists as-is
+        const pathExists = await rt.file(binaryPath).exists()
+        if (!pathExists) {
+          // Try which for relative paths
+          const whichResult = await rt.$.text`which ${binaryPath}`
+          if (!whichResult.trim()) {
+            throw new Error(`OpenCode binary not found: ${this.config.opencodePath}`)
+          }
+          binaryPath = whichResult.trim()
         }
-        binaryPath = whichResult.trim()
         console.log(`[Instance:${id}] Found binary at: ${binaryPath}`)
         
         // Clean up any stale process on this port before starting
@@ -177,15 +184,7 @@ export class OpenCodeInstance {
         const instanceEnv = this.instance.config.env || {}
         
         // Spawn the process
-        const proc = Bun.spawn([binaryPath, ...args], {
-          cwd: this.instance.config.workDir,
-          env: {
-            ...filteredEnv,
-            ...instanceEnv,
-          },
-          stdout: "pipe",
-          stderr: "pipe",
-        })
+        const proc = rt.spawn([binaryPath, ...args])
         
         this.instance.process = proc
         this.instance.pid = proc.pid
@@ -420,7 +419,7 @@ export class OpenCodeInstance {
   /**
    * Monitor process for unexpected exits
    */
-  private monitorProcess(proc: ReturnType<typeof Bun.spawn>): void {
+  private monitorProcess(proc: any): void {
     const id = this.instanceId
     
     proc.exited.then((exitCode) => {
@@ -440,7 +439,7 @@ export class OpenCodeInstance {
   /**
    * Pipe process output to console
    */
-  private pipeOutput(proc: ReturnType<typeof Bun.spawn>): void {
+  private pipeOutput(proc: any): void {
     const id = this.instanceId
     
 // Stream stdout - check it's a ReadableStream, not locked
@@ -587,7 +586,7 @@ export class OpenCodeInstance {
     
     try {
       // Use lsof to find process on port (macOS/Linux)
-      const result = await Bun.$`lsof -ti:${port} 2>/dev/null`.text()
+      const result = await rt.$.text`lsof -ti:${port} 2>/dev/null`
       const pids = result.trim().split('\n').filter(p => p)
       
       if (pids.length > 0) {
@@ -595,7 +594,7 @@ export class OpenCodeInstance {
         
         for (const pid of pids) {
           try {
-            await Bun.$`kill ${pid} 2>/dev/null`
+            await rt.$.quiet`kill ${pid} 2>/dev/null`
             console.log(`[Instance:${id}] Killed stale process ${pid}`)
           } catch {
             // Process may have already exited

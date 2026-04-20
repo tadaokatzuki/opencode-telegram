@@ -17,6 +17,8 @@ import { OpenCodeClient } from "./opencode/client"
 import { StreamHandler } from "./opencode/stream-handler"
 import type { TopicStore } from "./forum/topic-store"
 import { sanitizeError } from "./config"
+import * as http from "http"
+import rt from "./runtime"
 
 // =============================================================================
 // Types
@@ -80,7 +82,7 @@ export interface ApiServerConfig {
 }
 
 export class ApiServer {
-  private server?: ReturnType<typeof Bun.serve>
+  private server?: any
   private externalInstances = new Map<string, ExternalInstance>()
   private config: ApiServerConfig
   private rateLimitMap = new Map<string, { count: number; resetAt: number }>()
@@ -148,7 +150,7 @@ export class ApiServer {
       console.warn("[ApiServer] WARNING: No API key configured! Set API_KEY environment variable.")
     }
 
-    this.server = Bun.serve({
+    this.server = rt.serve({
       port,
       fetch: async (req) => {
         const url = new URL(req.url)

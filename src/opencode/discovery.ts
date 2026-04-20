@@ -7,7 +7,7 @@
  * 3. Querying their REST API for session info
  */
 
-import { $ } from "bun"
+import rt from "../runtime"
 
 // =============================================================================
 // Types
@@ -201,7 +201,7 @@ export async function isPortAlive(port: number): Promise<boolean> {
  */
 async function getListeningPort(pid: number): Promise<number | null> {
   try {
-    const result = await $`lsof -p ${pid} 2>/dev/null`.text()
+    const result = await rt.$.textDirect(`lsof -p ${pid} 2>/dev/null`)
     
     // Expandida lista de puertos conocidos para discovery (4096-4200)
     const knownPorts = [
@@ -251,7 +251,7 @@ async function getListeningPort(pid: number): Promise<number | null> {
  */
 async function getWorkingDirectory(pid: number): Promise<string | null> {
   try {
-    const result = await $`lsof -p ${pid} 2>/dev/null`.text()
+    const result = await rt.$.textDirect(`lsof -p ${pid} 2>/dev/null`)
     
     // Look for cwd entry
     for (const line of result.split('\n')) {

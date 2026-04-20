@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+
 /**
  * Telegram OpenCode Orchestrator
  * 

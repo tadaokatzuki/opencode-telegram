@@ -764,11 +764,89 @@ MIT © 2026
 
 ## 📦 Instalación de Dependencias
 
+### Con Bun (Recomendado)
 ```bash
-# Actualizar dependencias
+# Instalar Bun
+curl -fsSL https://bun.sh/install | bash
+
+# Instalar dependencias
 bun install
 
 # Verificar versiones
 bun -v
 tsc --version
 ```
+
+### Con npm (Alternativo)
+```bash
+# Instalar dependencias
+npm install
+
+# Verificar versiones
+node -v
+npm -v
+tsc --version
+```
+
+---
+
+## 🐛 Bugs Corregidos (v0.7.0) - Runtime Shim
+
+### Críticos
+
+| # | Bug | Archivo | Fix |
+|---|-----|---------|-----|
+| 1 | Bun.$ no funciona con Node.js | `runtime.ts` | Creado shim detectivo Bun/Node |
+| 2 | Bun.spawn no compatible con child_process | `runtime.ts` | Abstraído en rt.spawn() |
+| 3 | Bun.file no existe en Node | `runtime.ts` | Abstraído en rt.file() |
+| 4 | Bun.serve incompatible con http | `runtime.ts` | Abstraído en rt.serve() |
+| 5 | lsof no disponible en algunos sistemas | `instance.ts` | CheckPath existe como fallback |
+
+### Menores
+
+| # | Bug | Archivo | Fix |
+|---|-----|---------|-----|
+| 6 | which path incorrecto en Ubuntu/Windows | `instance.ts` | Validación directa con rt.file().exists() |
+| 7 | typecheck errors por Bun types | `tsconfig.json` | Agregado bun-types |
+| 8 | Template strings no funcionan en Node | `runtime.ts` | Implementado $.textDirect() |
+| 9 | file().exists() returnaba Promise en Node | `runtime.ts` | Sincronizado para Node |
+
+---
+
+## 🐛 Bugs Corregidos (v0.6.0)
+
+### Críticos
+
+| # | Bug | Archivo | Fix |
+|---|-----|---------|-----|
+| 1 | Error al crear topic sin nombre | `forum.ts` | Validación de nombre requise |
+| 2 | Fallo health check por timeout | `instance.ts` | Aumentado timeout a 60s |
+| 3 | Topic no se limpiaba al cerrar | `integration.ts` | Cleanup completo en close |
+
+### Menores
+
+| # | Bug | Archivo | Fix |
+|---|-----|---------|-----|
+| 4 | Estado no persistía correctamente | `state-store.ts` | Transacciones atomic |
+| 5 | Logs muy largos (truncate) | `instance.ts` | Limite de 4000 chars |
+| 6 | Emoji no se mostraba en Telegram | `telegram-markdown.ts` | Escape de emoji |
+
+---
+
+## 🚀 Nuevas Features (v0.7.0)
+
+- Runtime shim Bun/Node para compatibilidad cruzada
+- Validación de path directa (rt.file().exists())
+- Mejor manejo de errores en saludos
+- Docs de seguridad expandidas
+- Guía de contribución actualizada
+
+---
+
+## 🚀 Nuevas Features (v0.6.0)
+
+- Topic name auto-update con timestamp
+- Auto-create de directorios
+- Health check configurable
+- Stale topic timeout configurable
+- Debug topic separado

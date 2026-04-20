@@ -34,7 +34,10 @@ export async function sendTelegramAlert(title: string, message: string, isError:
   if (!botApi || !alertChatId) return
   
   const icon = isError ? "❌" : "⚠️"
-  const escapedMessage = message.replace(/[*_`\[\]]/g, "\\$&").slice(0, 300)
+  const escapedMessage = message
+    .replace(/\\/g, "\\\\")
+    .replace(/[*_`\[\]]/g, "\\$&")
+    .slice(0, 300)
   
   try {
     await botApi.sendMessage(

@@ -1,4 +1,4 @@
-# OpenCode Telegram Integration (v0.6.0)
+# OpenCode Telegram Integration (v0.7.0)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/Bun-%23000000.svg?logo=bun&logoColor=white)](https://bun.sh)
@@ -7,7 +7,7 @@
 
 A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instances through forum topics. Each forum topic in a Telegram supergroup gets its own dedicated OpenCode instance, enabling multi-user/multi-project AI assistance.
 
-## Features (v0.6.0)
+## Features (v0.7.0)
 
 - **Forum Topic to OpenCode Instance**: Each topic gets a dedicated OpenCode session
 - **Real-time Streaming**: SSE events from OpenCode are streamed to Telegram as editable messages
@@ -20,6 +20,7 @@ A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instan
 - **Commands Menu**: Inline keyboard with common commands (/menu)
 - **Context Compact**: Command to compact context when needed (/compact)
 - **Debug Topic**: Separate topic for debug/process logs
+- **Bun/Node Runtime**: Works on both Bun and Node.js via runtime shim
 - **Security**: Path validation, rate limiting, sanitized inputs
 - **Test Suite**: 76 tests with vitest
 
@@ -441,12 +442,62 @@ src/
 
 This project takes security seriously:
 
-- **Path Validation**: API server validates all paths to prevent path traversal attacks (`../`, null bytes)
-- **Rate Limiting**: API endpoints are rate-limited (100 requests/minute)
-- **Environment Filtering**: Only safe environment variables are passed to OpenCode instances
-- **Input Sanitization**: All user inputs are sanitized before processing
-- **API Key Required**: API server requires authentication for external registrations
-- **SQLite with WAL**: Uses WAL mode for safe concurrent database access
+### Protecciones Implementadas
+
+| Protección | Descripción |
+|------------|-------------|
+| **Path Validation** | API server valida rutas para prevenir path traversal (`../`, null bytes) |
+| **Rate Limiting** | Endpoints API limitada a 100 peticiones/minuto |
+| **Environment Filtering** | Solo variables de entorno seguras se pasan a instancias OpenCode |
+| **Input Sanitization** | Todos los inputs de usuario son sanitizados antes de procesar |
+| **API Key Required** | API server requiere autenticación para registros externos |
+| **SQLite with WAL** | Usa modo WAL para acceso seguro a base de datos concurrente |
+| **Constant-time Compare** | Comparación de API keys en tiempo constante para evitar timing attacks |
+| **CORS Configurable** | Orígenes permitidos configurables (no usar `*` en producción) |
+
+### Variables de Entorno Seguras
+
+Solo estas variables se pasan a las instancias OpenCode:
+
+```bash
+HOME, USER, PATH, SHELL, TERM, TMPDIR, TEMP, TMP,
+LANG, LC_ALL, LC_CTYPE, XDG_RUNTIME_DIR, XDG_CONFIG_DIRS, XDG_CONFIG_HOME
+```
+
+### Recomendaciones de Producción
+
+1. **API_KEY**: Generar una clave fuerte:
+   ```bash
+   openssl rand -base64 32
+   ```
+
+2. **CORS_ORIGINS**: No usar `*` en producción:
+   ```
+   CORS_ORIGINS=https://tu-dominio.com
+   ```
+
+3. **Rate Limiting**: El límite por defecto es 100req/5min por API key
+
+4. **Puerto Externo**: Usar `OPENCODE_EXTERNAL_PORT=4096` para Docker
+
+### GitHub Rulesets
+
+El proyecto usa **GitHub Rulesets** para proteger la rama `main`:
+
+```
+Main Branch Rules:
+├── Require pull request (0 approvals for direct pushes)
+├── Block force pushes
+├── Block deletions
+└── Include administrators (rules apply to everyone)
+```
+
+Para configurar en tu repositorio:
+1. Ve a **Settings → Rulesets**
+2. Crea un nuevo ruleset para `main`
+3. Agrega las restricciones deseadas
+
+Ver [GitHub Rulesets Documentation](https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
 
 ## Configuration
 
@@ -576,7 +627,42 @@ lsof -ti:4100 | xargs kill
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+¡Contribuciones son bienvenidas! Por favor lee nuestra [Guía de Contribuciones](CONTRIBUTING.md) para detalles sobre el código de conducta y el proceso para enviar pull requests.
+
+### Guía Rápida de Contribución
+
+```bash
+# 1. Fork el repositorio
+# 2. Crea una rama feature
+git checkout -b feature/nueva-caracteristica
+
+# 3. Haz tus cambios
+# 4. Ejecuta tests
+bun test
+
+# 5. Commitea tus cambios
+git commit -m "feat: description"
+
+# 6. Push a tu fork
+git push origin feature/nueva-caracteristica
+
+# 7. Crea Pull Request
+```
+
+### Requisitos
+
+- Bun v1.0+ (el proyecto usa runtime shim para Bun/Node)
+- TypeScript.strict enabled
+- 76 tests passing
+
+### Comandos de Desarrollo
+
+| Comando | Descripción |
+|---------|------------|
+| `bun run dev` | Desarrollo con watch |
+| `bun run build` | Build de producción |
+| `bun run test` | Ejecutar tests |
+| `bun run typecheck` | Verificar tipos |
 
 ## License
 

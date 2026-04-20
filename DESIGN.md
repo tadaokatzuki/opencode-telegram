@@ -644,4 +644,62 @@ bun test              # Run all tests
 
 ---
 
-*Documento generado automáticamente - v0.7.4*
+---
+
+## 10. Runtime Shim (Bun/Node Compatibility)
+
+El proyecto usa un shim detectivo para compatibilidad entre Bun y Node.js:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              RUNTIME SHIM (src/runtime.ts)                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  const isBun = typeof Bun !== "undefined"                     │
+│                                                             │
+│  if (isBun) {                                             │
+│    │                                                       │
+│    ▼                                                       │
+│  Bun.$`command ${var}`  →  Bun.spawn()  →  Bun.file()       │
+│                                                             │
+│  } else {                                                  │
+│    │                                                       │
+│    ▼                                                       │
+│  execSync()       →  child_process →  fs                    │
+│                                                             │
+│  }                                                         │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### APIs Abstraídas
+
+| API | Bun | Node.js |
+|-----|-----|---------|
+| `$` template | `Bun.$\`cmd`` | `execSync()` |
+| `spawn` | `Bun.spawn()` | `child_process.spawn()` |
+| `file` | `Bun.file()` | `fs.readFileSync()` |
+| `serve` | `Bun.serve()` | `http.createServer()` |
+| `sleep` | `Bun.sleep()` | `setTimeout()` |
+
+### Uso en Código
+
+```typescript
+import rt from "./runtime"
+
+// Template strings
+const result = await rt.$.text`which ${binaryPath}`
+
+// Spawn process
+const proc = rt.spawn(["opencode", "serve", "--port", "4100"])
+
+// File operations
+const exists = await rt.file("/path").exists()
+
+// HTTP server
+const server = rt.serve({ port: 4200, fetch: handler })
+```
+
+---
+
+*Documento generado automáticamente - v0.7.5*

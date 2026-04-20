@@ -468,7 +468,14 @@ LANG, LC_ALL, LC_CTYPE, XDG_RUNTIME_DIR, XDG_CONFIG_DIRS, XDG_CONFIG_HOME
 
 1. **API_KEY**: Generar una clave fuerte:
    ```bash
+   # En Linux/macOS
    openssl rand -base64 32
+   
+   # En macOS (alternativo)
+   ruby -r securerandom -e 'puts SecureRandom.base64(32)'
+   
+   # Con Python
+   python3 -c "import base64; import os; print(base64.b64encode(os.urandom(32)).decode())"
    ```
 
 2. **CORS_ORIGINS**: No usar `*` en producción:

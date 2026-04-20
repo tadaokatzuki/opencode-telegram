@@ -3,6 +3,13 @@
 ## Project
 Telegram bot que gestiona instancias de OpenCode a través de forum topics.
 
+## Tech Stack
+- **Runtime**: Bun v1.3+
+- **Language**: TypeScript
+- **Bot Framework**: Grammy v1.42
+- **Testing**: Vitest (76 tests)
+- **Database**: SQLite (WAL mode)
+
 ## Bugs Corregidos (Recientes)
 
 1. **Binary validation** - usa `which` en vez de `test -f`
@@ -13,21 +20,34 @@ Telegram bot que gestiona instancias de OpenCode a través de forum topics.
 6. **Topic renaming disabled** - causaba "Session not registered"
 7. **permission.asked** - soportado nuevo tipo de evento de permisos
 8. **escapeHtml undefined** - protegido contra valores undefined
+9. **Path validation** - seguridad mejorada contra path traversal
 
-## Dependencias Actualizadas
+## Dependencias
 
-- grammy: ^1.42.0 (antes ^1.22.0)
-- typescript: ^5.9.0 (antes ^5.4.0)
+- grammy: ^1.42.0
+- typescript: ^5.9.0
+- vitest: ^2.0.0
 
 ## Scripts
 
 ```bash
-bun run dev    # Desarrollo con hot reload
-bun run start  # Producción
+npm install           # Instalar deps (para Termux)
+bun run dev          # Desarrollo con hot reload
+bun run start        # Producción
+bun test             # Tests
+bun run typecheck    # Verificar tipos
 ```
+
+## Seguridad
+
+- Path validation con decodeURIComponent y null byte check
+- Rate limiting (100 req/min)
+- Environment filtering para instancias
+- API key requerida para registros externos
+- SQL con prepared statements
 
 ## Estado de BD
 
-- orchestrator.db: 0 instancias
-- topics.db: 0 mappings
-- projects/: solo "telegrambot"
+- orchestrator.db: SQLite con WAL
+- topics.db: SQLite con WAL
+- Port pool: 4100-4199

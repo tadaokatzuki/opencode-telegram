@@ -20,6 +20,8 @@ A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instan
 - **Commands Menu**: Inline keyboard with common commands (/menu)
 - **Context Compact**: Command to compact context when needed (/compact)
 - **Debug Topic**: Separate topic for debug/process logs
+- **Security**: Path validation, rate limiting, sanitized inputs
+- **Test Suite**: 76 tests with vitest
 
 ## Table of Contents
 
@@ -27,6 +29,7 @@ A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instan
 - [Running with Docker](#running-with-docker)
 - [Usage](#usage)
 - [Architecture](#architecture)
+- [Security](#security)
 - [Configuration](#configuration)
 - [API Reference](#api-reference)
 - [Development](#development)
@@ -433,6 +436,17 @@ src/
     ├── forum.ts          # Forum/topic types
     └── orchestrator.ts   # Orchestrator types
 ```
+
+## Security
+
+This project takes security seriously:
+
+- **Path Validation**: API server validates all paths to prevent path traversal attacks (`../`, null bytes)
+- **Rate Limiting**: API endpoints are rate-limited (100 requests/minute)
+- **Environment Filtering**: Only safe environment variables are passed to OpenCode instances
+- **Input Sanitization**: All user inputs are sanitized before processing
+- **API Key Required**: API server requires authentication for external registrations
+- **SQLite with WAL**: Uses WAL mode for safe concurrent database access
 
 ## Configuration
 

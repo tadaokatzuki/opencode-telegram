@@ -590,4 +590,58 @@ OpenCode sends tool.call event
 
 ---
 
+## 13. Seguridad
+
+### Medidas de Seguridad Implementadas
+
+| Medida | Descripción | Archivo |
+|--------|------------|---------|
+| **Path Validation** | Valida paths contra `../`, null bytes, rutas sensibles | `api-server.ts:617-651` |
+| **Rate Limiting** | 100 req/min por API key | `api-server.ts:88-116` |
+| **Environment Filtering** | Solo vars安全问题 env pasan a OpenCode | `orchestrator/instance.ts:170-174` |
+| **Input Sanitization** | Decode URL antes de validar | `api-server.ts:621-638` |
+| **API Key Auth** | Requiere API key para registros externos | `api-server.ts:179-183` |
+| **SQLite WAL** | Modo WAL para acceso concurrente seguro | `forum/topic-store.ts:41-42` |
+
+### Path Validation Code
+
+```typescript
+// Decode URL-encoded paths first
+let decodedPath = decodeURIComponent(path)
+
+// Check for null bytes (after decode)
+if (decodedPath.includes("\0")) return false
+
+// Check for path traversal attempts (after decode)
+const normalized = decodedPath.replace(/\\/g, "/")
+if (normalized.includes("../") || normalized.includes("..\\")) return false
+
+// Block sensitive system paths
+if (normalized === "/etc" || normalized.startsWith("/etc/") ...)
+```
+
+---
+
+## 14. Testing
+
+- **Framework**: Vitest
+- **Tests**: 76 tests passing
+- **Coverage**: config, topic-store, orchestrator, api-server
+
+```bash
+bun test              # Run all tests
+```
+
+---
+
+## 15. Changelog
+
+### v0.6.0+
+- Forum topics soporte completo
+- SSE streaming
+- Path validation security
+- Test suite (76 tests)
+
+---
+
 *Documento generado automáticamente - v0.7.4*

@@ -97,22 +97,22 @@ nano .env
 
 ### Variables Requeridas
 
-| Variable | Cómo obtener | Ejemplo |
-|----------|--------------|---------|
-| `TELEGRAM_BOT_TOKEN` | @BotFather | `1234567890:ABCdefGHIjklMNOpqrsTUVwxyz` |
-| `TELEGRAM_CHAT_ID` | @RawDataBot | `-1001234567890` |
-| `TELEGRAM_ALLOWED_USERS` | @userinfobot | `1234567890` |
+| Variable                 | Cómo obtener | Ejemplo                                 |
+|--------------------------|--------------|-----------------------------------------|
+| `TELEGRAM_BOT_TOKEN`     | @BotFather   | `1234567890:ABCdefGHIjklMNOpqrsTUVwxyz` |
+| `TELEGRAM_CHAT_ID`       | @RawDataBot  | `-1001234567890`                        |
+| `TELEGRAM_ALLOWED_USERS` | @userinfobot | `1234567890`                            |
 
 ### Variables Opcionales
 
-| Variable | Default | Descripción |
-|----------|---------|-------------|
-| `PROJECT_BASE_PATH` | `~/oc-bot` | Directorio base para proyectos |
-| `OPENCODE_PATH` | `opencode` | Path al binario de OpenCode |
-| `OPENCODE_MAX_INSTANCES` | `5` | Instancias máximas |
-| `OPENCODE_PORT_START` | `5100` | Puerto inicial |
-| `OPENCODE_IDLE_TIMEOUT_MS` | `1800000` | Timeout inactivo (30 min) |
-| `API_PORT` | `4200` | Puerto del API server |
+| Variable                   | Default    | Descripción                    |
+|----------------------------|------------|--------------------------------|
+| `PROJECT_BASE_PATH`        | `~/oc-bot` | Directorio base para proyectos |
+| `OPENCODE_PATH`            | `opencode` | Path al binario de OpenCode    |
+| `OPENCODE_MAX_INSTANCES`   | `5`        | Instancias máximas             |
+| `OPENCODE_PORT_START`      | `5100`     | Puerto inicial                 |
+| `OPENCODE_IDLE_TIMEOUT_MS` | `1800000`  | Timeout inactivo (30 min)      |
+| `API_PORT`                 | `4200`     | Puerto del API server          |
 
 ### 4. Install and Configure
 
@@ -196,13 +196,13 @@ API_PORT=4200
 
 The bot's session discovery feature uses `ps` and `lsof` to find OpenCode instances running on your machine. Docker containers have isolated process namespaces, meaning **the bot cannot discover OpenCode sessions running on your host**.
 
-| Feature | Native (Bun) | Docker | Docker + `--pid=host` |
-|---------|--------------|--------|----------------------|
-| `/new` - create managed instances | Works | Works | Works |
-| `/sessions` - discover host sessions | Works | **No** | Linux only |
-| `/connect` - attach to discovered sessions | Works | **No** | Linux only |
-| External API registration | Works | Works | Works |
-| Stream responses to Telegram | Works | Works | Works |
+| Feature                                    | Native (Bun) | Docker | Docker + `--pid=host` |
+|--------------------------------------------|--------------|--------|-----------------------|
+| `/new` - create managed instances          | Works        | Works  | Works                 |
+| `/sessions` - discover host sessions       | Works        | **No** | Linux only            |
+| `/connect` - attach to discovered sessions | Works        | **No** | Linux only            |
+| External API registration                  | Works        | Works  | Works                 |
+| Stream responses to Telegram               | Works        | Works  | Works                 |
 
 ### When Docker Makes Sense
 
@@ -230,9 +230,9 @@ docker run -d --name opencode-telegram \
 ```
 
 **Volume Mounts:**
-| Mount | Purpose |
-|-------|---------|
-| `./data:/app/data` | SQLite databases for persistent state |
+| Mount                   | Purpose                                       |
+|-------------------------|-----------------------------------------------|
+| `./data:/app/data`      | SQLite databases for persistent state         |
 | `~/oc-bot:/root/oc-bot` | Project directories created by `/new` command |
 
 ### Option 2: With Discovery (Linux Only)
@@ -382,29 +382,29 @@ Topics follow the `<project>-<session title>` naming convention:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    Telegram Supergroup (Forum)                       │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                          │
-│  │ Topic #1 │  │ Topic #2 │  │ Topic #3 │  ...                     │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘                          │
+│                    Telegram Supergroup (Forum)                      │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                           │
+│  │ Topic #1 │  │ Topic #2 │  │ Topic #3 │  ...                      │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘                           │
 └───────┼─────────────┼─────────────┼─────────────────────────────────┘
         │             │             │
         ▼             ▼             ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      Integration Layer                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │
-│  │ grammY Bot  │  │TopicManager │  │StreamHandler│                 │
-│  └─────────────┘  └─────────────┘  └─────────────┘                 │
+│                      Integration Layer                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                  │
+│  │ grammY Bot  │  │TopicManager │  │StreamHandler│                  │
+│  └─────────────┘  └─────────────┘  └─────────────┘                  │
 └─────────────────────────────────────────────────────────────────────┘
         │             │             │
         ▼             ▼             ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    Instance Manager (Orchestrator)                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │ Instance #1  │  │ Instance #2  │  │ Instance #3  │  ...         │
-│  │ Port 4100    │  │ Port 4101    │  │ Port 4102    │              │
-│  │ opencode     │  │ opencode     │  │ opencode     │              │
-│  │ serve        │  │ serve        │  │ serve        │              │
-│  └──────────────┘  └──────────────┘  └──────────────┘              │
+│                    Instance Manager (Orchestrator)                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │
+│  │ Instance #1  │  │ Instance #2  │  │ Instance #3  │  ...          │
+│  │ Port 4100    │  │ Port 4101    │  │ Port 4102    │               │
+│  │ opencode     │  │ opencode     │  │ opencode     │               │
+│  │ serve        │  │ serve        │  │ serve        │               │
+│  └──────────────┘  └──────────────┘  └──────────────┘               │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -450,16 +450,16 @@ This project takes security seriously:
 
 ## Configuration
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | - | Bot token from @BotFather |
-| `TELEGRAM_CHAT_ID` | Yes | - | Supergroup ID (starts with -100) |
-| `PROJECT_BASE_PATH` | No | `~/oc-bot` | Where topic directories are created |
-| `OPENCODE_PATH` | No | `opencode` | Path to opencode binary |
-| `OPENCODE_MAX_INSTANCES` | No | `10` | Max concurrent instances |
-| `OPENCODE_PORT_START` | No | `4100` | Starting port for instances |
-| `OPENCODE_IDLE_TIMEOUT_MS` | No | `1800000` | Idle timeout (30 min) |
-| `API_PORT` | No | `4200` | External API server port |
+| Variable                   | Required | Default    | Description                         |
+|----------------------------|----------|------------|-------------------------------------|
+| `TELEGRAM_BOT_TOKEN`       | Yes      | -          | Bot token from @BotFather           |
+| `TELEGRAM_CHAT_ID`         | Yes      | -          | Supergroup ID (starts with -100)    |
+| `PROJECT_BASE_PATH`        | No       | `~/oc-bot` | Where topic directories are created |
+| `OPENCODE_PATH`            | No       | `opencode` | Path to opencode binary             |
+| `OPENCODE_MAX_INSTANCES`   | No       | `10`       | Max concurrent instances            |
+| `OPENCODE_PORT_START`      | No       | `4100`     | Starting port for instances         |
+| `OPENCODE_IDLE_TIMEOUT_MS` | No       | `1800000`  | Idle timeout (30 min)               |
+| `API_PORT`                 | No       | `4200`     | External API server port            |
 
 See [.env.example](.env.example) for all available options.
 
@@ -593,22 +593,22 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Librerías y Dependencias
 
-| Librería | Uso | Licencia |
-|----------|-----|---------|
-| [grammY](https://grammy.dev/) | Bot de Telegram | MIT |
-| [Bun](https://bun.sh/) | Runtime de JavaScript | GPL-3.0 |
-| [TypeScript](https://www.typescriptlang.org/) | Type checking | Apache 2.0 |
-| [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | Base de datos local | MIT |
-| [undici](https://undici.nodejs.org/) | Cliente HTTP/Fetch | MIT |
+| Librería                                                     | Uso                   | Licencia   |
+|--------------------------------------------------------------|-----------------------|------------|
+| [grammY](https://grammy.dev/)                                | Bot de Telegram       | MIT        |
+| [Bun](https://bun.sh/)                                       | Runtime de JavaScript | GPL-3.0    |
+| [TypeScript](https://www.typescriptlang.org/)                | Type checking         | Apache 2.0 |
+| [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | Base de datos local   | MIT        |
+| [undici](https://undici.nodejs.org/)                         | Cliente HTTP/Fetch    | MIT        |
 
 ### Proyectos de Referencia (Inspiración)
 
-| Proyecto | Descripción | Relevante para |
-|----------|-------------|---------------|
-| [grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot) | Bot avanzado con scheduled tasks, voice, model switching | ✅ Scheduled tasks |
-| [HNGM-HP/opencode-bridge](https://github.com/HNGM-HP/opencode-bridge) | Bridge multi-plataforma (Telegram, Discord, WeCom, etc.) | ✅ Features empresariales |
-| [tommertom/opencode-telegram](https://github.com/Tommertom/opencode-telegram) | Terminal PTY interactivo | ❌ No comparable |
-| [tommertom/opencoder-telegram-plugin](https://github.com/Tommertom/opencoder-telegram-plugin) | Plugin de notificaciones OpenCode | ❌ No comparable |
+| Proyecto                                                                                      | Descripción                                              | Relevante para             |
+|-----------------------------------------------------------------------------------------------|----------------------------------------------------------|----------------------------|
+| [grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot)               | Bot avanzado con scheduled tasks, voice, model switching | ✅ Scheduled tasks        |
+| [HNGM-HP/opencode-bridge](https://github.com/HNGM-HP/opencode-bridge)                         | Bridge multi-plataforma (Telegram, Discord, WeCom, etc.) | ✅ Features empresariales |
+| [tommertom/opencode-telegram](https://github.com/Tommertom/opencode-telegram)                 | Terminal PTY interactivo                                 | ❌ No comparable          |
+| [tommertom/opencoder-telegram-plugin](https://github.com/Tommertom/opencoder-telegram-plugin) | Plugin de notificaciones OpenCode                        | ❌ No comparable          |
 
 ---
 
@@ -625,10 +625,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Comandos Nuevos
 
-| Comando | Descripción |
-|---------|-------------|
-| `/stats` | Ver métricas del bot |
-| `/help` | Ayuda con todos los comandos |
+| Comando  | Descripción                  |
+|----------|------------------------------|
+| `/stats` | Ver métricas del bot         |
+| `/help`  | Ayuda con todos los comandos |
 
 ---
 
@@ -652,15 +652,15 @@ MIT © 2026
 
 ### Menores
 
-| # | Bug | Archivo | Fix |
-|---|-----|---------|-----|
-| 6 | stat variable sin usar | `forum.ts` | Eliminada |
-| 7 | RATE_LIMIT_MAX_MESSAGES sin usar | `integration.ts` | Ahora usa contador de ventana |
-| 8 | ps aux frágil | `discovery.ts` | Usa ps -eo pid,comm,args con parsing preciso |
-| 9 | isValidPath no bloqueaba sensibles | `api-server.ts` | Retorna false para rutas bloqueadas |
-| 10 | lastSessionList stale | `forum.ts` | Agregado TTL de 60s |
-| 11 | closeForumTopic vs deleteForumTopic | `integration.ts` | Cambiado a deleteForumTopic |
-| 12 | externalPort crea duplicados | `integration.ts` | Check + cleanup antes de crear suscripción |
+| #  | Bug                                 | Archivo          | Fix                                          |
+|----|-------------------------------------|------------------|----------------------------------------------|
+| 6  | stat variable sin usar              | `forum.ts`       | Eliminada                                    |
+| 7  | RATE_LIMIT_MAX_MESSAGES sin usar    | `integration.ts` | Ahora usa contador de ventana                |
+| 8  | ps aux frágil                       | `discovery.ts`   | Usa ps -eo pid,comm,args con parsing preciso |
+| 9  | isValidPath no bloqueaba sensibles  | `api-server.ts`  | Retorna false para rutas bloqueadas          |
+| 10 | lastSessionList stale               | `forum.ts`       | Agregado TTL de 60s                          |
+| 11 | closeForumTopic vs deleteForumTopic | `integration.ts` | Cambiado a deleteForumTopic                  |
+| 12 | externalPort crea duplicados        | `integration.ts` | Check + cleanup antes de crear suscripción   |
 
 ---
 

@@ -65,7 +65,7 @@ export async function discoverInstances(): Promise<DiscoveredInstance[]> {
 
   try {
     // Find all opencode processes - use ps with proper column selection
-    const psResult = await $`ps -eo pid,comm,args`.text()
+    const psResult = await rt.$.textDirect(`ps -eo pid,comm,args`)
     const lines = psResult.split('\n')
 
     for (const line of lines) {

@@ -184,7 +184,7 @@ export class OpenCodeInstance {
         const instanceEnv = this.instance.config.env || {}
         
         // Spawn the process
-        const proc = rt.spawn([binaryPath, ...args])
+        const proc = rt.spawn([binaryPath, ...args]) as any
         
         this.instance.process = proc
         this.instance.pid = proc.pid

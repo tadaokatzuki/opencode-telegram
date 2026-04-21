@@ -632,6 +632,14 @@ lsof -ti:4100 | xargs kill
 2. **Linux with `--pid=host`**: Shares host process namespace
 3. **External API**: Manually register instances via `/api/register`
 
+## Deployment
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for production deployment guides including:
+- Systemd service configuration
+- PM2 setup
+- Environment variables
+- Troubleshooting
+
 ## Contributing
 
 ¡Contribuciones son bienvenidas! Por favor lee nuestra [Guía de Contribuciones](CONTRIBUTING.md) para detalles sobre el código de conducta y el proceso para enviar pull requests.

@@ -45,7 +45,7 @@ export class OpenCodeClient {
    */
   async health(): Promise<HealthResponse> {
     const response = await this.fetch("/global/health")
-    return response.json()
+    return response.json() as any as HealthResponse
   }
 
   /**
@@ -80,7 +80,7 @@ export class OpenCodeClient {
   async getSession(sessionId: string): Promise<Session | null> {
     try {
       const response = await this.fetch(`/session/${sessionId}`)
-      return response.json()
+      return response.json() as any as Session
     } catch (error) {
       if (error instanceof OpenCodeClientError && error.code === "NOT_FOUND") {
         return null
@@ -97,7 +97,7 @@ export class OpenCodeClient {
       method: "POST",
       body: JSON.stringify(options ?? {}),
     })
-    return response.json()
+    return response.json() as any
   }
 
   /**
@@ -118,7 +118,7 @@ export class OpenCodeClient {
    */
   async getMessages(sessionId: string): Promise<Message[]> {
     const response = await this.fetch(`/session/${sessionId}/message`)
-    const data: MessagesResponse = await response.json()
+    const data = await response.json() as MessagesResponse
     return data.data
   }
 
@@ -143,7 +143,7 @@ export class OpenCodeClient {
       body: JSON.stringify(body),
     })
 
-    return response.json()
+    return response.json() as any
   }
 
   /**
@@ -271,7 +271,7 @@ export class OpenCodeClient {
    */
   async findInFiles(pattern: string): Promise<Array<{ path: string; line: number; match: string }>> {
     const response = await this.fetch(`/find?pattern=${encodeURIComponent(pattern)}`)
-    return response.json()
+    return response.json() as any
   }
 
   /**
@@ -279,7 +279,7 @@ export class OpenCodeClient {
    */
   async findFiles(query: string): Promise<string[]> {
     const response = await this.fetch(`/find/file?query=${encodeURIComponent(query)}`)
-    return response.json()
+    return response.json() as any
   }
 
   /**

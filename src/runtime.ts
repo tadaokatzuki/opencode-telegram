@@ -18,7 +18,7 @@ interface SpawnResult {
 }
 
 interface FileResult {
-  exists(): boolean
+  exists(): Promise<boolean>
   text(): Promise<string>
   json(): Promise<any>
 }
@@ -56,7 +56,6 @@ function bunSpawnCommand(args: string[]): SpawnResult {
 
 interface ShellResult {
   text(): Promise<string>
-  quiet(): Promise<void>
 }
 
 function nodeExec(str: string): ShellResult {
@@ -68,9 +67,14 @@ function nodeExec(str: string): ShellResult {
         return e.stdout || ""
       }
     },
-    quiet: async () => {
-      execSync(str, { encoding: "utf-8", stdio: "ignore" })
-    },
+  }
+}
+
+function nodeExecQuiet(): { stdout: any; exitCode: number; text: () => string } {
+  return {
+    stdout: null,
+    exitCode: 0,
+    text: () => "",
   }
 }
 
@@ -96,21 +100,41 @@ export const $ = {
     return (await nodeExec(str)).text()
   },
 
-  async quiet(strings: TemplateStringsArray, ...values: any[]): Promise<void> {
+  async quiet(strings: TemplateStringsArray, ...values: any[]): Promise<{ stdout: any; exitCode: number }> {
     const cmd = String.raw({ raw: strings }, ...values)
     if (isBun) {
-      await (await bunExec(cmd)).quiet()
-      return
+      try {
+        const proc = Bun.spawn(cmd.split(" ")) as any
+        await proc.exited
+        return { stdout: null, exitCode: proc.exitCode }
+      } catch {
+        return { stdout: null, exitCode: 1 }
+      }
     }
-    await nodeExec(cmd).quiet()
+    try {
+      execSync(cmd, { encoding: "utf-8", stdio: "ignore" })
+      return { stdout: null, exitCode: 0 }
+    } catch (e: any) {
+      return { stdout: e.stdout, exitCode: e.status || 1 }
+    }
   },
 
-  async quietDirect(str: string): Promise<void> {
+  async quietDirect(str: string): Promise<{ stdout: any; exitCode: number }> {
     if (isBun) {
-      await (await bunExec(str)).quiet()
-      return
+      try {
+        const proc = Bun.spawn(str.split(" ")) as any
+        await proc.exited
+        return { stdout: null, exitCode: proc.exitCode }
+      } catch {
+        return { stdout: null, exitCode: 1 }
+      }
     }
-    await nodeExec(str).quiet()
+    try {
+      execSync(str, { encoding: "utf-8", stdio: "ignore" })
+      return { stdout: null, exitCode: 0 }
+    } catch (e: any) {
+      return { stdout: e.stdout, exitCode: e.status || 1 }
+    }
   },
 
   // Call as function: $(`command`) - returns text directly
@@ -136,7 +160,7 @@ export function file(filepath: string): FileResult {
     }
   }
   return {
-    exists: () => fs.existsSync(filepath),
+    exists: async () => fs.existsSync(filepath),
     text: async () => fs.readFileSync(filepath, "utf-8"),
     json: async () => JSON.parse(fs.readFileSync(filepath, "utf-8")),
   }

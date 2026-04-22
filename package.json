@@ -3,16 +3,16 @@
   "version": "0.7.0",
   "type": "module",
   "description": "Telegram bot that orchestrates multiple OpenCode instances through forum topics",
-  "author": "huynle (forked)",
+  "author": "tadaokatzuki",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/huynle/opencode-telegram.git"
+    "url": "git+https://github.com/tadaokatzuki/opencode-telegram.git"
   },
   "bugs": {
-    "url": "https://github.com/huynle/opencode-telegram/issues"
+    "url": "https://github.com/tadaokatzuki/opencode-telegram/issues"
   },
-  "homepage": "https://github.com/huynle/opencode-telegram#readme",
+  "homepage": "https://github.com/tadaokatzuki/opencode-telegram#readme",
   "keywords": [
     "telegram",
     "bot",
@@ -34,22 +34,14 @@
     "lint": "./node_modules/.bin/tsc --noEmit",
     "build": "bun build src/index.ts --outdir=dist --target=bun",
     "test": "bun test",
-    "test:watch": "bun test --watch",
-    "install:deps": "npm install"
+    "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "better-sqlite3": "^12.9.0",
-    "bun": "^1.3.12",
     "grammy": "^1.42.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/bun": "^1.1.0",
-    "adm-zip": "^0.5.17",
-    "esbuild": "^0.28.0",
-    "tsx": "^4.21.0",
     "typescript": "^6.0.3",
-    "unzip": "^0.1.11",
-    "vitest": "^4.1.4"
+    "vitest": "^2.0.0"
   }
 }

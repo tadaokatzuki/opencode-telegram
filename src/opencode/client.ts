@@ -13,6 +13,7 @@ import {
   type MessagesResponse,
   type SendMessageRequest,
   type CreateSessionRequest,
+  type ApiResponse,
   type SSEEvent,
   DEFAULT_CLIENT_CONFIG,
   OpenCodeClientError,
@@ -45,7 +46,7 @@ export class OpenCodeClient {
    */
   async health(): Promise<HealthResponse> {
     const response = await this.fetch("/global/health")
-    return response.json() as any as HealthResponse
+    return response.json() as unknown as HealthResponse
   }
 
   /**
@@ -80,7 +81,7 @@ export class OpenCodeClient {
   async getSession(sessionId: string): Promise<Session | null> {
     try {
       const response = await this.fetch(`/session/${sessionId}`)
-      return response.json() as any as Session
+return response.json() as unknown as Session
     } catch (error) {
       if (error instanceof OpenCodeClientError && error.code === "NOT_FOUND") {
         return null
@@ -97,7 +98,7 @@ export class OpenCodeClient {
       method: "POST",
       body: JSON.stringify(options ?? {}),
     })
-    return response.json() as any
+    return response.json() as unknown as Session
   }
 
   /**
@@ -143,7 +144,7 @@ export class OpenCodeClient {
       body: JSON.stringify(body),
     })
 
-    return response.json() as any
+    return response.json() as unknown as Message[]
   }
 
   /**
@@ -271,7 +272,7 @@ export class OpenCodeClient {
    */
   async findInFiles(pattern: string): Promise<Array<{ path: string; line: number; match: string }>> {
     const response = await this.fetch(`/find?pattern=${encodeURIComponent(pattern)}`)
-    return response.json() as any
+    return response.json() as unknown as Array<{ path: string; line: number; match: string }>
   }
 
   /**
@@ -279,7 +280,7 @@ export class OpenCodeClient {
    */
   async findFiles(query: string): Promise<string[]> {
     const response = await this.fetch(`/find/file?query=${encodeURIComponent(query)}`)
-    return response.json() as any
+    return response.json() as unknown as string[]
   }
 
   /**

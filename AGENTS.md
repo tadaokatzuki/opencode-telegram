@@ -7,11 +7,29 @@ Telegram bot que gestiona instancias de OpenCode a través de forum topics.
 - **Runtime**: Bun v1.3+ / Node.js 20+ (runtime shim)
 - **Language**: TypeScript
 - **Bot Framework**: Grammy v1.42
-- **Testing**: Vitest (152 tests)
+- **Testing**: Vitest (174 tests)
 - **Database**: bun:sqlite (WAL mode)
 
 ## Version
-**Current: v0.7.0**
+**Current: v0.8.0**
+
+## New Modules (src/core/)
+
+1. **anti-loop-manager** - Prevents infinite loops by enforcing:
+   - Max tool calls per session (10)
+   - Hard timeout (10 min)
+   - Warning timeout (3 min)
+   - Auto cleanup on session end
+
+2. **rate-limiter** - Telegram API rate limiting:
+   - Message count per time window (60/5min)
+   - 429 response handling with exponential backoff
+   - Configurable limits
+
+3. **sse-subscription-manager** - SSE connection lifecycle:
+   - Register/unregister SSE subscriptions
+   - Client↔session↔topic tracking
+   - Graceful cleanup on shutdown
 
 ## Bugs Corregidos (Recientes)
 
@@ -40,7 +58,7 @@ npm install           # Instalar deps (para Termux)
 bun install          # Instalar deps (Bun)
 bun run dev          # Desarrollo con hot reload
 bun run start        # Producción
-bun test            # Tests (152 tests)
+bun test            # Tests (174 tests)
 bun run typecheck   # Verificar tipos
 ```
 

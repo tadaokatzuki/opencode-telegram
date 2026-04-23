@@ -254,10 +254,10 @@ CREATE TABLE bot_stats (
 │                    ROOT (index.ts)                            │
 │  Entry point: createIntegratedApp()                        │
 └─────────────────────┬───────────────────────────────────┘
-                      │
-    ┌─────────────────┼─────────────────┐
-    │                 │                 │
-    ▼                 ▼                 ▼
+                       │
+     ┌─────────────────┼─────────────────┐
+     │                 │                 │
+     ▼                 ▼                 ▼
 ┌────────┐      ┌────────┐      ┌────────┐
 │ config │      │ utils   │      │ types  │
 │ .env   │      │logger  │      │forum   │
@@ -266,14 +266,19 @@ CREATE TABLE bot_stats (
         │                       │
         ▼                       ▼
 ┌─────────────────────────────────────────┐
-│              bot/                        │
+│              core/                        │
 ├─────────────────────────────────────────┤
-│  handlers/                            │
-│    forum.ts (creates handlers)          │
-│      - createForumHandlers()           │
-│      - createForumCommands()          │
-│      - callback_query:data          │
-└─────────────────────────────────────┘
+│  anti-loop-manager.ts (loop prevention)  │
+│    - handleEvent()                     │
+│    - startTimers() / cleanupSession()  │
+│  rate-limiter.ts (API rate limiting)  │
+│    - check() / recordSuccess()        │
+│    - recordRateLimitError()           │
+│  sse-subscription-manager.ts (SSE mgmt)│
+│    - register() / cleanup()           │
+│    - getBySession() / getByTopic()    │
+│  config.ts (integration config)      │
+└───────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
 │              forum/                     │
@@ -702,4 +707,4 @@ const server = rt.serve({ port: 4200, fetch: handler })
 
 ---
 
-*Documento generado automáticamente - v0.7.5*
+*Documento generado automáticamente - v0.8.0*

@@ -1,4 +1,4 @@
-# OpenCode Telegram Integration (v0.7.0)
+# OpenCode Telegram Integration (v0.8.0)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/Bun-%23000000.svg?logo=bun&logoColor=white)](https://bun.sh)
@@ -18,7 +18,7 @@ A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instan
 - **External API**: Register remote instances
 - **Security**: Path validation, rate limiting, user whitelist
 - **Bun/Node**: Works on both runtimes via shim
-- **Tests**: 152 tests with vitest
+- **Tests**: 174 tests with vitest
 
 ## Quick Start
 
@@ -84,13 +84,14 @@ API_KEY=your_secure_key
 src/
 ├── index.ts           # Entry point
 ├── config.ts         # Configuration
-├── integration.ts   # Main integration layer
-├── api-server.ts   # External API
-├── bot/handlers/   # Telegram handlers
-├── forum/          # Topic management
+├── integration.ts    # Main integration layer
+├── api-server.ts    # External API
+├── core/            # Core utilities (anti-loop, rate-limit, SSE)
+├── bot/handlers/    # Telegram handlers
+├── forum/           # Topic management
 ├── opencode/        # OpenCode client
 ├── orchestrator/    # Instance manager
-└── types/          # TypeScript types
+└── types/           # TypeScript types
 ```
 
 ### Storage

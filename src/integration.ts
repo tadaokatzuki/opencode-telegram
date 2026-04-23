@@ -42,6 +42,45 @@ import { ApiServer, createApiServer } from "./api-server"
 import { mkdir } from "fs/promises"
 
 // =============================================================================
+// Security Helpers
+// =============================================================================
+
+/**
+ * Validate that a path is within the allowed base directory
+ * Prevents path traversal attacks
+ */
+function isPathWithinBase(path: string, basePath: string): boolean {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+/g, "/")
+  const baseNormalized = basePath.replace(/\\/g, "/").replace(/\/+/g, "/")
+  
+  if (!normalized.startsWith(baseNormalized)) {
+    return false
+  }
+  
+  if (normalized.includes("..")) {
+    return false
+  }
+  
+  return true
+}
+
+/**
+ * Validate workDir before creating directories
+ */
+function validateWorkDir(workDir: string, basePath: string): string | null {
+  if (workDir === "/tmp" || workDir.startsWith("/tmp/")) {
+    return workDir
+  }
+  
+  if (!isPathWithinBase(workDir, basePath)) {
+    console.warn(`[Security] Blocked path traversal attempt: ${workDir} is outside ${basePath}`)
+    return null
+  }
+  
+  return workDir
+}
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -986,10 +1025,19 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
 
 // Ensure directory exists (only for non-linked directories)
     if (!mapping?.workDir && config.project.autoCreateDirs) {
+      const validatedWorkDir = validateWorkDir(workDir, config.project.basePath)
+      
+      if (!validatedWorkDir) {
+        await sendToTopic(bot, chatId, effectiveTopicId, 
+          "Invalid directory path. Please contact the administrator."
+        )
+        return { success: false, error: "Path traversal attempt blocked" }
+      }
+      
       try {
-        await mkdir(workDir, { recursive: true })
+        await mkdir(validatedWorkDir, { recursive: true })
       } catch (error) {
-        console.error(`[Integration] Failed to create directory ${workDir}:`, error)
+        console.error(`[Integration] Failed to create directory ${validatedWorkDir}:`, error)
       }
     }
     
@@ -1543,10 +1591,19 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
       // Create directory in PROJECT_BASE_PATH
       const workDir = `${config.project.basePath}/${topicName}`
       
+      // Validate directory path before creating
+      const validatedWorkDir = validateWorkDir(workDir, config.project.basePath)
+      if (!validatedWorkDir) {
+        return {
+          success: false,
+          error: "Invalid directory path. Path traversal attempt blocked.",
+        }
+      }
+      
       // Create the directory
       try {
-        await mkdir(workDir, { recursive: true })
-        console.log(`[Integration] Created directory: ${workDir}`)
+        await mkdir(validatedWorkDir, { recursive: true })
+        console.log(`[Integration] Created directory: ${validatedWorkDir}`)
       } catch (error) {
         return {
           success: false,

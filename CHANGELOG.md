@@ -24,11 +24,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Track client↔session↔topic relationships
   - Graceful cleanup on shutdown
 
+- **src/core/config.ts** - Centralized integration configuration
+
+- **tests/path-validation.test.ts** - Security tests for path validation
+
 ### Fixed
 
 - Anti-loop protection now properly tracks tool execution and resets counters on new session
 - Rate limiting correctly handles 429 responses with proper wait times
 - SSE subscription cleanup properly aborts connections and closes clients
+- Path traversal prevention in `integration.ts` before directory creation
 
 ### Changed
 
@@ -38,7 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Tests
 
-- Added 22 new tests for core modules (174 total tests passing)
+- Added 31 new tests for core modules and security (183 total tests passing)
 
 ---
 

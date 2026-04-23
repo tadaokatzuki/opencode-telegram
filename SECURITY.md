@@ -27,12 +27,17 @@ This project implements multiple layers of security:
 All file paths are validated to prevent path traversal attacks:
 
 ```typescript
-// api-server.ts - Path validation
+// api-server.ts - Path validation for external API
 - Decode URL-encoded paths first
 - Check for null bytes (\0)
 - Block path traversal attempts (../, ..\)
 - Remove duplicate slashes
 - Block sensitive system paths (/etc, /root, /home, etc.)
+
+// integration.ts - Path validation for directory creation
+- Validate workDir is within PROJECT_BASE_PATH
+- Block paths outside allowed base directory
+- Allow /tmp only for General topic
 ```
 
 ### 3. Rate Limiting

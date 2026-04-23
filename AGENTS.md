@@ -7,7 +7,7 @@ Telegram bot que gestiona instancias de OpenCode a través de forum topics.
 - **Runtime**: Bun v1.3+ / Node.js 20+ (runtime shim)
 - **Language**: TypeScript
 - **Bot Framework**: Grammy v1.42
-- **Testing**: Vitest (174 tests)
+- **Testing**: Vitest (183 tests)
 - **Database**: bun:sqlite (WAL mode)
 
 ## Version
@@ -58,7 +58,7 @@ npm install           # Instalar deps (para Termux)
 bun install          # Instalar deps (Bun)
 bun run dev          # Desarrollo con hot reload
 bun run start        # Producción
-bun test            # Tests (174 tests)
+bun test            # Tests (183 tests)
 bun run typecheck   # Verificar tipos
 ```
 

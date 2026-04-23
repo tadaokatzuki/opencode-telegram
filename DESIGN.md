@@ -630,8 +630,8 @@ if (normalized === "/etc" || normalized.startsWith("/etc/") ...)
 ## 14. Testing
 
 - **Framework**: Vitest
-- **Tests**: 76 tests passing
-- **Coverage**: config, topic-store, orchestrator, api-server
+- **Tests**: 174 tests passing
+- **Coverage**: config, topic-store, orchestrator, api-server, core modules
 
 ```bash
 bun test              # Run all tests
@@ -641,11 +641,16 @@ bun test              # Run all tests
 
 ## 15. Changelog
 
-### v0.6.0+
+### v0.8.0
+- Core module refactoring (anti-loop, rate-limiter, SSE manager)
+- 174 tests (up from 152)
+- Better memory management and cleanup
+
+### v0.7.0
 - Forum topics soporte completo
 - SSE streaming
 - Path validation security
-- Test suite (76 tests)
+- Test suite (152 tests)
 
 ---
 

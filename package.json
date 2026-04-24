@@ -1,6 +1,6 @@
 {
   "name": "opencode-telegram",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "type": "module",
   "description": "Telegram bot that orchestrates multiple OpenCode instances through forum topics",
   "author": "tadaokatzuki",

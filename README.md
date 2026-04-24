@@ -18,7 +18,7 @@ A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instan
 - **External API**: Register remote instances
 - **Security**: Path validation, rate limiting, user whitelist
 - **Bun/Node**: Works on both runtimes via shim
-- **Tests**: 183 tests with vitest
+- **Tests**: 186 tests with vitest
 
 ## Quick Start
 

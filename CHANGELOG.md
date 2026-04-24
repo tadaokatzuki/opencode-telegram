@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.8.1] - 2026-04-24
+
+### Added
+
+- **vitest.config.ts** - Coverage configuration with v8 provider
+- **tests/api-server-integration.test.ts** - Integration tests for topicIdIndex (3 tests)
+
+### Performance
+
+- **topicIdIndex optimization** - Added secondary Map index in ApiServer for O(1) topicId lookups:
+  - `isExternalTopic()`: O(n) → O(1)
+  - `getExternalByTopic()`: O(n) → O(1)
+
+### Fixed
+
+- Error handling in `api-server.ts` `createApiServer()` - Added try/catch for startup failures
+
+### Changed
+
+- `AGENTS.md` versions aligned with `package.json`
+
+### Tests
+
+- Added 3 new tests for API server integration (186 total tests passing)
+
+---
+
 ## [0.8.0] - 2026-04-23
 
 ### Added

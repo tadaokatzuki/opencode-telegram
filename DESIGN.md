@@ -630,11 +630,12 @@ if (normalized === "/etc" || normalized.startsWith("/etc/") ...)
 ## 14. Testing
 
 - **Framework**: Vitest
-- **Tests**: 183 tests passing
-- **Coverage**: config, topic-store, orchestrator, api-server, core modules, security
+- **Tests**: 186 tests passing
+- **Coverage**: config, topic-store, orchestrator, api-server, core modules, security, integrations
 
 ```bash
 bun test              # Run all tests
+bun run coverage     # Run with coverage
 ```
 
 ---

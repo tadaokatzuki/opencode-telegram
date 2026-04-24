@@ -82,21 +82,41 @@ API_KEY=your_secure_key
 
 ```
 src/
-├── index.ts           # Entry point
-├── config.ts         # Configuration
-├── integration.ts    # Main integration layer
-├── api-server.ts    # External API
-├── core/            # Core utilities (anti-loop, rate-limit, SSE)
-├── bot/handlers/    # Telegram handlers
-├── forum/           # Topic management
-├── opencode/        # OpenCode client
-├── orchestrator/    # Instance manager
-└── types/           # TypeScript types
+├── index.ts             # Entry point
+├── config.ts            # Configuration
+├── integration.ts      # Main integration layer (2000+ lines)
+├── api-server.ts        # External API (REST)
+├── runtime.ts           # Bun/Node compatibility
+├── core/                # Core utilities
+│   ├── anti-loop-manager.ts
+│   ├── rate-limiter.ts
+│   ├── sse-subscription-manager.ts
+│   └── config.ts
+├── bot/handlers/       # Telegram handlers
+│   └── forum.ts
+├── forum/              # Topic management
+│   ├── topic-manager.ts
+│   └── topic-store.ts
+├── opencode/           # OpenCode client
+│   ├── client.ts
+│   ├── stream-handler.ts
+│   ├── discovery.ts
+│   └── types.ts
+├── orchestrator/        # Instance manager
+│   ├── manager.ts
+│   ├── instance.ts
+│   ├── port-pool.ts
+│   └── state-store.ts
+├── types/              # TypeScript types
+│   ├── forum.ts
+│   └── orchestrator.ts
+└── utils/              # Utilities
+    └── logger.ts
 ```
 
 ### Storage
-- `orchestrator.db`: Instance state
-- `topics.db`: Topic → session mappings
+- `orchestrator.db`: Instance state (SQLite WAL)
+- `topics.db`: Topic → session mappings (SQLite WAL)
 - Port pool: 4100-4199
 
 ## Security

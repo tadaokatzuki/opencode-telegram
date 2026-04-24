@@ -20,35 +20,36 @@
 │  │         Integration Layer (integration.ts)             │              │
 │  │  ┌─────────────┐  ┌──────────────┐  ┌────────────┐     │              │
 │  │  │TopicManager │  │StreamHandler │  │API Server  │     │              │
-│  │  │ (forum/)   │  │ (opencode/)  │  │api-server │     │              │
+│  │  │ (forum/)    │  │ (opencode/)  │  │api-server  │     │              │
 │  │  └─────────────┘  └──────────────┘  └────────────┘     │              │
 │  └────────────────────────────────────────────────────────┘              │
 │                          │                                               │
-│          ┌───────────────┼───────────────┐                             │
-│          ▼               ▼               ▼                            │
-│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐    │
-│  │  Orchestrator  │ │ ExternalPort    │ │ Discovered      │  │
-│  │  (Managed)     │ │ (External)      │ │ (TUI Sessions)  │  │
-│  │  ┌───────────┐ │ │  ┌───────────┐ │ │  ┌───────────┐  │  │
-│  │  │Instance#1│ │ │  │Instance#1│ │ │  │Instance#1│  │  │
-│  │  │Port:4100 │ │ │  │Port:4096 │ │ │  │Port:?   │  │  │
-│  │  │opencode  │ │ │  │opencode  │ │ │  │opencode  │  │  │
-│  │  │serve    │ │ │  │serve    │ │ ���  │tui     │  │  │
-│  │  └───────────┘ │ │  └───────────┘ │ │  └───────────┘  │  │
-│  │  ┌───────────┐ │ │                │ │                 │  │           │
-│  │  │Instance#2│ │ │                │ │                 │  │
-│  │  │Port:4101 │ │ └────────────────┘ └─────────────────┘  │
-│  │  └───────────┘                                             │
-│  └────────────────────────────────────────────────────────────┘            │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────────┐          │
-│  │              CORE MODULES (src/core/)                  │          │
-│  │  ┌──────────────┐ ┌────────────┐ ┌───────────────┐ │          │
-│  │  │anti-loop   │ │rate-limit│ │SSE subscrip. │ │          │
-│  │  │manager    │ │ limiter │ │  manager     │ │          │
-│  │  └──────────────┘ └────────┘ └───────────────┘ │          │
-│  └─────────────────────────────────────────────────────────────┘          │
-└────────────────────────────────────────────────────────────────────────────┘
+│          ┌───────────────┼───────────────┐                               │
+│          ▼               ▼               ▼                               │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐             │
+│  │  Orchestrator   │ │ ExternalPort    │ │ Discovered      │             │
+│  │  (Managed)      │ │ (External)      │ │ (TUI Sessions)  │             │
+│  │  ┌───────────┐  │ │  ┌───────────┐  │ │  ┌───────────┐  │             │
+│  │  │Instance#1 │  │ │  │Instance#1 │  │ │  │Instance#1 │  │             │
+│  │  │Port:4100  │  │ │  │Port:4096  │  │ │  │Port:?     │  │             │
+│  │  │opencode   │  │ │  │opencode   │  │ │  │opencode   │  │             │
+│  │  │serve      │  │ │  │serve      │  │ │  │tui        │  │             │
+│  │  │serve      │  │ │  │serve      │  │ │  │tui        │  │             │
+│  │  └───────────┘  │ │  └───────────┘  │ │  └───────────┘  │             │
+│  │  ┌───────────┐  │ │                 │ │                 │             │           │
+│  │  │Instance#2 │  │ │                 │ │                 │             │
+│  │  │Port:4101  │  │ └─────────────────┘ └─────────────────┘             │
+│  │  └───────────┘  │                                                     │
+│  └─────────────────┘                                                     │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────┐                  │
+│  │              CORE MODULES (src/core/)              │                  │
+│  │  ┌──────────────┐ ┌────────────┐ ┌───────────────┐ │                  │
+│  │  │anti-loop     │ │rate-limit  │ │SSE subscrip.  │ │                  │
+│  │  │manager       │ │ limiter    │ │  manager      │ │                  │
+│  │  └──────────────┘ └────────────┘ └───────────────┘ │                  │
+│  └────────────────────────────────────────────────────┘                  │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## 2. Flujo de Mensajes
@@ -88,90 +89,90 @@ Usuario envia mensaje
 ┌───────────────────┐  ┌──────────────────┐
 │ Respond to        │  │ Send to OpenCode │
 │ Telegram          │  │ (async)          │
-└───────────────────┘  └────────┬────────┘
+└───────────────────┘  └────────┬─────────┘
                                 │
                                 ▼
                         ┌──────────────────┐
                         │ SSE Events       │
                         │ ◄─────────────   │
-                        └────────┬────────┘
+                        └────────┬─────────┘
                                  │
                                  ▼
                         ┌──────────────────┐
-                        │ StreamHandler   │
-                        │ Parse events    │
-                        │ Build msgs      │
-                        └────────┬────────┘
+                        │ StreamHandler    │
+                        │ Parse events     │
+                        │ Build msgs       │
+                        └────────┬─────────┘
                                  │
-              ┌────────────────┼────────────────┐
-              │              │              │
-              ▼              ▼              ▼
-       ┌───────────┐ ┌───────────┐ ┌───────────┐
-       │ Progress  │ │ Tool Call │ │Response   │
-       │ Message   │ │ Edit      │ │ Edit      │
-       └─────────┘   └─────────┘   └─────────┘
-              │              │              │
-              └──────►──────┴──────►──────┘
+              ┌────────────────┼─────────────┐
+              │                │             │
+              ▼                ▼             ▼
+        ┌───────────┐ ┌───────────┐ ┌───────────┐
+        │ Progress  │ │ Tool Call │ │Response   │
+        │ Message   │ │ Edit      │ │ Edit      │
+        └───────────┘ └───────────┘ └───────────┘
+              │             │              │
+              └──────►──────┴──────►───────┘
                             │
                             ▼
                     ┌───────────────┐
-                    │ Telegram    │
-                    │ (User sees) │
-                    └───────────┘
+                    │ Telegram      │
+                    │ (User sees)   │
+                    └───────────────┘
 ```
 
 ## 3. Diagrama de Entidades (ER)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    ENTITY RELATIONSHIP                              │
+│                    ENTITY RELATIONSHIP                                      │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────┐       ┌──────────────────┐
 │   TELEGRAM       │       │   OPENCODE       │
 │   CHAT           │       │   SESSION        │
 ├──────────────────┤       ├──────────────────┤
-│ chatId (PK)     │──1:N──│ id (PK)         │
-│ title           │       │ status          │
-│ isForum         │       │ createdAt       │
-│ debugTopicId    │       │ updatedAt       │
+│ chatId (PK)      │──1:N──│ id (PK)          │
+│ title            │       │ status           │
+│ isForum          │       │ createdAt        │
+│ debugTopicId     │       │ updatedAt        │
 └──────────────────┘       └──────────────────┘
          │                           ▲
-         │ 1:N                      │
-         ▼                         │ 1:1
+         │ 1:N                       │
+         ▼                           │ 1:1
 ┌──────────────────┐       ┌──────────────────┐
-│   FORUM TOPIC    │       │  MANAGED INSTANCE │
+│   FORUM TOPIC    │       │ MANAGED INSTANCE │
 ├──────────────────┤       ├──────────────────┤
-│ chatId (PK)      │◄─────│ instanceId (PK)  │
-│ topicId (PK)     │       │ sessionId (FK)    │
-│ topicName       │       │ topicId (FK)     │
-│ sessionId (FK)  │       │ port            │
-│ status         │       │ state           │
-│ workDir        │       │ pid             │
-│ creatorUserId  │       │ startedAt      │
-│ iconColor      │       │ lastActivityAt │
-│ iconEmojiId   │       │ restartCount   │
-│ streamingEnabled│      │ lastError     │
+│ chatId (PK)      │◄──────│ instanceId (PK)  │
+│ topicId (PK)     │       │ sessionId (FK)   │
+│ topicName        │       │ topicId (FK)     │
+│ sessionId (FK)   │       │ port             │
+│ status           │       │ state            │
+│ workDir          │       │ pid              │
+│ creatorUserId    │       │ startedAt        │
+│ iconColor        │       │ lastActivityAt   │
+│ iconEmojiId      │       │ restartCount     │
+│ streamingEnabled │       │ lastError        │
 └──────────────────┘       └──────────────────┘
                                    │
                                    │ 1:1
                                    ▼
                           ┌──────────────────┐
-                          │  PROJECT        │
-                          │  DIRECTORY      │
+                          │  PROJECT         │
+                          │  DIRECTORY       │
                           ├──────────────────┤
-                          │ workDir (PK)   │
-                          │ projectName   │
-                          │ createdAt    │
-                          │ instanceId  │
+                          │ workDir (PK)     │
+                          │ projectName      │
+                          │ createdAt        │
+                          │ instanceId       │
                           └──────────────────┘
 
 ┌──────────────────┐       ┌──────────────────┐
-│  BOT STATS       │       │  WORKSPACE      │
+│  BOT STATS       │       │  WORKSPACE       │
 ├──────────────────┤       ├──────────────────┤
-│ metric (PK)     │       │ workspaceId     │
-│ value          │       │ projects      │
-│ updatedAt     │       │ basePath     │
+│ metric (PK)      │       │ workspaceId      │
+│ value            │       │ projects         │
+│ updatedAt        │       │ basePath         │
 └──────────────────┘       └──────────────────┘
 ```
 
@@ -256,37 +257,37 @@ CREATE TABLE bot_stats (
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    PACKAGE DIAGRAM                                 │
+│                    PACKAGE DIAGRAM                                          │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
-│                    ROOT (index.ts)                            │
-│  Entry point: createIntegratedApp()                        │
-└─────────────────────┬───────────────────────────────────┘
+│                    ROOT (index.ts)                          │
+│  Entry point: createIntegratedApp()                         │
+└─────────────────────┬───────────────────────────────────────┘
                        │
-      ┌────────────────┼────────────────┐
-      │                │                │
-      ▼                ▼                ▼
+      ┌────────────────┼──────────────┐
+      │                │              │
+      ▼                ▼              ▼
 ┌─────────┐     ┌─────────┐     ┌─────────┐
 │ config  │     │ utils   │     │ types   │
-│ .env    │     │logger  │     │forum    │
-│ parsing │     │        │     │orchestr │
+│ .env    │     │logger   │     │forum    │
+│ parsing │     │         │     │orchestr │
 └─────────┘     └─────────┘     └─────────┘
-       │                │                │
-       │                ▼                │
-       │         ┌─────────────┐         │
-       │         │ runtime.ts  │         │
-       │         │(Bun/Node)   │         │
-       │         └─────────────┘         │
-       │                │                │
-       ▼                ▼                ▼
+       │             │                │
+       │             ▼                │
+       │       ┌─────────────┐        │
+       │       │ runtime.ts  │        │
+       │       │(Bun/Node)   │        │
+       │       └─────────────┘        │
+       │                │             │
+       ▼                ▼             ▼
 ┌──────────────────────────────────────────────┐
-│              core/                             │
+│              core/                           │
 ├──────────────────────────────────────────────┤
-│  anti-loop-manager.ts (loop prevention)        │
-│    - handleEvent()                            │
+│  anti-loop-manager.ts (loop prevention)      │
+│    - handleEvent()                           │
 │    - startTimers() / cleanupSession()        │
-│  rate-limiter.ts (API rate limiting)          │
+│  rate-limiter.ts (API rate limiting)         │
 │    - check() / recordSuccess()               │
 │    - recordRateLimitError()                  │
 │  sse-subscription-manager.ts (SSE mgmt)      │
@@ -298,98 +299,98 @@ CREATE TABLE bot_stats (
 ┌─────────────────────────────────────────┐
 │              forum/                     │
 ├─────────────────────────────────────────┤
-│  topic-manager.ts (topic↔session logic)  │
-│    - handleTopicCreated()              │
-│    - handleTopicClosed()              │
-│    - routeMessage()                  │
-│  topic-store.ts (SQLite peristence)  │
-│    - createMapping()                 │
-│    - getMapping()                   │
-│    - queryMappings()                │
-│    - toggleStreaming()             │
-└─────────────────────────────────────┘
+│  topic-manager.ts (topic↔session logic) │
+│    - handleTopicCreated()               │
+│    - handleTopicClosed()                │
+│    - routeMessage()                     │
+│  topic-store.ts (SQLite peristence)     │
+│    - createMapping()                    │
+│    - getMapping()                       │
+│    - queryMappings()                    │
+│    - toggleStreaming()                  │
+└─────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
-│              opencode/                 │
+│              opencode/                  │
 ├─────────────────────────────────────────┤
-│  client.ts (REST API wrapper)          │
-│    - sendMessageAsync()              │
-│    - createSession()               │
-│  discovery.ts (find TUI sessions)    │
-│  stream-handler.ts (SSE→TG)       │
-│    - handleEvent()                │
-│    - registerSession()           │
-│  telegram-markdown.ts          │
-└─────────────────────────────────────┘
+│  client.ts (REST API wrapper)           │
+│    - sendMessageAsync()                 │
+│    - createSession()                    │
+│  discovery.ts (find TUI sessions)       │
+│  stream-handler.ts (SSE→TG)             │
+│    - handleEvent()                      │
+│    - registerSession()                  │
+│  telegram-markdown.ts                   │
+└─────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
-│           orchestrator/                  │
+│           orchestrator/                 │
 ├─────────────────────────────────────────┤
-│  manager.ts (multi-instance)           │
-│    - getOrCreateInstance()         │
-│    - stopInstance()              │
-│  instance.ts (single instance)   │
-│    - start() / stop()           │
-│    - healthCheck()             │
-│  port-pool.ts (port allocation)│
-│  state-store.ts (SQLite)         │
-└─────────────────────────────────────┘
+│  manager.ts (multi-instance)            │
+│    - getOrCreateInstance()              │
+│    - stopInstance()                     │
+│  instance.ts (single instance)          │
+│    - start() / stop()                   │
+│    - healthCheck()                      │
+│  port-pool.ts (port allocation)         │
+│  state-store.ts (SQLite)                │
+└─────────────────────────────────────────┘
 ```
 
 ## 6. Diagrama de Componentes
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    COMPONENT DIAGRAM                                   │
-└─────────────────────────────────────────────────────────────────────────────┘
+│                    COMPONENT DIAGRAM                                    │
+└─────────────────────────────────────────────────────────────────────────┘
 
   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-  │   User     │    │  Telegram  │    │  OpenCode  │
-  │  (TUI)     │    │   Bot      │    │  Server   │
-  └─────────┘    └──────┬──────┘    └──────┬──────┘
-       │                 │                   │
-       │                 │                   │ HTTP/REST
-       │                 │                   │◄──────────►
-       │                 │                   │     SSE
-       │                 │                   │◄─────────►
-       │                 │                   │
-       ▼                 ▼                   ▼
+  │   User      │    │  Telegram   │    │  OpenCode   │
+  │  (TUI)      │    │   Bot       │    │  Server     │
+  └─────────────┘    └──────┬──────┘    └──────┬──────┘
+       │                    │                  │
+       │                    │                  │ HTTP/REST
+       │                    │                  │◄──────────►
+       │                    │                  │     SSE
+       │                    │                  │◄─────────►
+       │                    │                  │
+       ▼                    ▼                  ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                 Integration Layer                        │
-│  ┌────────────────┐  ┌────────────────┐              │
-│  │ TopicManager  │  │ StreamHandler │              │
-│  │ - routeMsg() │  │ - handleEvent │              │
-│  │ - linkDir() │  │ - register() │              │
-│  └──────┬���─���────┘  └──────┬───────┘              │
-│         │                │                      │
-│         └────────┬──────┘                     │
-│                  │                            │
-│         ┌───────┴────────┐                   │
-│         ▼                ▼                   │
-│  ┌────────────────┐  ┌────────────────┐  │
-│  │ InstanceManager│  │  API Server    │  │
-│  │ - start/stop  │  │ - /register   │  │
-│  │ - healthChk  │  │ - /unregister │  │
-│  └────────────────┘  └────────────────┘  │
-└────────────────────────────────────────────┘
+│                 Integration Layer                            │
+│  ┌────────────────┐  ┌────────────────┐                      │
+│  │ TopicManager   │  │ StreamHandler  │                      │
+│  │ - routeMsg()   │  │ - handleEvent  │                      │
+│  │ - linkDir()    │  │ - register()   │                      │
+│  └──────┬─────────┘  └──────┬─────────┘                      │
+│         │                   │                                │
+│         └────────┬──────────┘                                │
+│                  │                                           │
+│         ┌────────┴──────────┐                                │
+│         ▼                   ▼                                │
+│  ┌────────────────┐  ┌────────────────┐                      │
+│  │ InstanceManager│  │  API Server    │                      │
+│  │ - start/stop   │  │ - /register    │                      │
+│  │ - healthChk    │  │ - /unregister  │                      │
+│  └────────────────┘  └────────────────┘                      │
+└──────────────────────────────────────────────────────────────┘
          │                │
          │                │              Bun.spawn()
          ▼                ▼              HTTP/TCP
   ┌────────────────┐  ┌────────────────┐
-  │   Managed     │  │   External    │
-  │   Instances   │  │   Instances   │
-  │  - Port 4100 │  │  - Port 4096  │
-  │  - opencode  │  │  - opencode  │
-  │    serve    │  │    serve    │
+  │   Managed      │  │   External     │
+  │   Instances    │  │   Instances    │
+  │  - Port 4100   │  │  - Port 4096   │
+  │  - opencode    │  │  - opencode    │
+  │    serve       │  │    serve       │
   └────────────────┘  └────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│  DATA LAYER                                            │
-│  ┌───────────────┐  ┌───────────────┐                  │
-│  │ TopicStore  │  │ StateStore  │  (SQLite)     │
-│  │(topic_mappgs)│  │(instance_st) │                  │
-│  └───────────────┘  └───────────────┘                  │
-└───────────────────────────────────────────────────┘
+│  DATA LAYER                                                     │
+│  ┌───────────────┐  ┌───────────────┐                           │
+│  │ TopicStore    │  │ StateStore    │  (SQLite)                 │
+│  │(topic_mappgs) │  │(instance_st)  │                           │
+│  └───────────────┘  └───────────────┘                           │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## 7. Mockup de Interfaz
@@ -397,16 +398,16 @@ CREATE TABLE bot_stats (
 ### Mensaje de Estado (Pinned)
 
 ```
-┌────────────────────────────────────────┐
-│ 🤖 OpenCode - Project Alpha             │
+┌─────────────────────────────────────────┐
+│ 🤖 OpenCode - Project Alpha            │
 │ ═══════════════════════════════════    │
-│ 📁 Working: /root/project-alpha       │
-│ 🧠 Model: big-pickle                  │
-│ 📊 Tokens: 45,234 / 200K (23%)        │
-│ ⏱️ Time: 2:34                        │
-│ 🔧 Tools: 3                           │
+│ 📁 Working: /root/project-alpha        │
+│ 🧠 Model: big-pickle                   │
+│ 📊 Tokens: 45,234 / 200K (23%)         │
+│ ⏱️ Time: 2:34                          │
+│ 🔧 Tools: 3                            │
 │ ═══════════════════════════════════    │
-│ [Accept] [Deny] [Always]              │
+│ [Accept] [Deny] [Always]               │
 └────────────────────────────────────────┘
         │
         │ (after click "Accept")
@@ -414,8 +415,8 @@ CREATE TABLE bot_stats (
 ┌────────────────────────────────────────┐
 │ ✅ Permission granted (once)           │
 │ ═══════════════════════════════════    │
-│ Edit file: /workspace/src/index.ts    │
-│ [View Changes]                       │
+│ Edit file: /workspace/src/index.ts     │
+│ [View Changes]                         │
 └────────────────────────────────────────┘
 
 ### /sessions List
@@ -438,11 +439,11 @@ CREATE TABLE bot_stats (
 ### /menu Inline Keyboard
 
 ```
-┌─────────────────────────────────┐
-│ /new  │ /stream │ /session      │
-│ /link │ /disconnect │ /compact │
-│ /status │ /stats │ /help       │
-└─────────────────────────────────┘
+┌──────────────────────────────────┐
+│ /new    │ /stream     │ /session │
+│ /link   │ /disconnect │ /compact │
+│ /status │ /stats      │ /help    │
+└──────────────────────────────────┘
 ```
 
 ## 8. Estados de la Instancia
@@ -450,40 +451,40 @@ CREATE TABLE bot_stats (
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    STATE MACHINE                            │
-│                    (Instance)                              │
+│                    (Instance)                               │
 └─────────────────────────────────────────────────────────────┘
 
     ┌─────────┐
-    │stopped │ ◄──┐ (initial)
-    └──┬────┘    │
-       │ start() │
-       ▼        │
-    ┌──────────┐ │
-    │starting │ │
-    └────┬────┘ │
-         │     │
+    │stopped  │ ◄──┐ (initial)
+    └──┬──────┘    │
+       │ start()   │
+       ▼           │
+    ┌──────────┐   │
+    │starting  │   │
+    └────┬─────┘   │
+         │         │
          │ healthCheck OK
-         ▼     │
-    ┌──────────┐ │
-    │ running │─┴──► idleTimeout ──► stopped
-    └────┬────┘                (auto-stop)
+         ▼         │
+    ┌──────────┐   │
+    │ running  │───┴──► idleTimeout ──► stopped
+    └────┬─────┘                (auto-stop)
          │
          │ crash / exit code != 0
          ▼
     ┌──────────┐
-    │ crashed │
-    └────┬────┘
+    │ crashed  │
+    └────┬─────┘
          │ restartCount < 3
          ▼
       ┌──────────┐
-      │starting │ (retry)
-      └─────────┘
+      │starting  │ (retry)
+      └──────────┘
 
     OR (max retries)
 
     ┌──────────┐
-    │ failed  │
-    └─────────┘
+    │ failed   │
+    └──────────┘
 ```
 
 ## 9. Flujo de Permisos
@@ -498,64 +499,64 @@ OpenCode sends tool.call event
          ▼
 ┌───────────────────┐
 │ StreamHandler     │
-│ Build permission │
-│ inline keyboard  │
-└────────┬────────┘
+│ Build permission  │
+│ inline keyboard   │
+└────────┬──────────┘
          │
          ▼
 ┌───────────────────┐
-│ Send to Telegram │
-│ with callback    │
-│ "perm:once:id"   │
-│ "perm:always:id" │
-│ "perm:reject:id"│
-└────────┬────────┘
+│ Send to Telegram  │
+│ with callback     │
+│ "perm:once:id"    │
+│ "perm:always:id"  │
+│ "perm:reject:id"  │
+└────────┬──────────┘
          │
      User clicks button
          │
          ▼
 ┌───────────────────┐
-│ callback_query   │
-│ event received  │
-└────────┬────────┘
+│ callback_query    │
+│ event received    │
+└────────┬──────────┘
          │
          │ grammY middleware
          ▼
 ┌───────────────────┐
-│ ForumHandlers    │───┐
-│ (callback_qr)   │   │ next() passes
-└────────┬────────┘   │
-         │           ▼
-         │    ┌───────────────────┐
-         │───►│Integration Perm   │
-         │    │ Handler           │
+│ ForumHandlers     │───┐
+│ (callback_qr)     │   │ next() passes
+└────────┬──────────┘   │
+         │              ▼
+         │    ┌────────────────────┐
+         │───►│ Integration Perm   │
+         │    │ Handler            │
          │    │ (bot.callbackQuery)│
-         │    └────────┬──────────┘
+         │    └────────┬───────────┘
          │             │
          │             ▼
-         │    ┌───────────────────┐
+         │    ┌────────────────────┐
          │    │ respondToPermission│
          │    │ (once/always/rej)  │
-         │    └────────┬──────────┘
+         │    └────────┬───────────┘
          │             │
          │             ▼
          │    ┌───────────────────┐
-         │    │ OpenCode API     │
-         │    │ /session/perm    │
+         │    │ OpenCode API      │
+         │    │ /session/perm     │
          │    └────────┬──────────┘
          │             │
          │       OpenCode processes
          │             ▼
          │    ┌───────────────────┐
-         │    │ Continue/Abort   │
-         │    │ execution       │
+         │    │ Continue/Abort    │
+         │    │ execution         │
          │    └───────────────────┘
          │
          ▼
 ┌───────────────────┐
-│ Edit message    │
-│ "✅ Granted" │
-└───────────────┘
+│ Edit message      │
+│ "✅ Granted"      │
+└───────────────────┘
 ```
 
 ## 10. Tabla de Comandos
@@ -684,22 +685,22 @@ El proyecto usa un shim detectivo para compatibilidad entre Bun y Node.js:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│              RUNTIME SHIM (src/runtime.ts)                      │
+│              RUNTIME SHIM (src/runtime.ts)                  │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  const isBun = typeof Bun !== "undefined"                     │
+│  const isBun = typeof Bun !== "undefined"                   │
 │                                                             │
-│  if (isBun) {                                             │
-│    │                                                       │
-│    ▼                                                       │
+│  if (isBun) {                                               │
+│    │                                                        │
+│    ▼                                                        │
 │  Bun.$`command ${var}`  →  Bun.spawn()  →  Bun.file()       │
 │                                                             │
-│  } else {                                                  │
-│    │                                                       │
-│    ▼                                                       │
+│  } else {                                                   │
+│    │                                                        │
+│    ▼                                                        │
 │  execSync()       →  child_process →  fs                    │
 │                                                             │
-│  }                                                         │
+│  }                                                          │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```

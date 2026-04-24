@@ -616,12 +616,12 @@ OpenCode sends tool.call event
 
 | Medida | Descripción | Archivo |
 |--------|------------|---------|
-| **Path Validation** | Valida paths contra `../`, null bytes, rutas sensibles | `api-server.ts:617-651` |
-| **Rate Limiting** | 100 req/min por API key | `api-server.ts:88-116` |
-| **Environment Filtering** | Solo vars安全问题 env pasan a OpenCode | `orchestrator/instance.ts:170-174` |
-| **Input Sanitization** | Decode URL antes de validar | `api-server.ts:621-638` |
-| **API Key Auth** | Requiere API key para registros externos | `api-server.ts:179-183` |
-| **SQLite WAL** | Modo WAL para acceso concurrente seguro | `forum/topic-store.ts:41-42` |
+| **Path Validation** | Valida paths contra `../`, null bytes, rutas sensibles | `api-server.ts:609-651` |
+| **Rate Limiting** | 100 req/min por API key | `api-server.ts:88-122` |
+| **Environment Filtering** | Solo vars安全问题 env pasan a OpenCode | `orchestrator/instance.ts` |
+| **Input Sanitization** | Decode URL antes de validar | `api-server.ts:656-671` |
+| **API Key Auth** | Requiere API key para registros externos | `api-server.ts:182-190` |
+| **SQLite WAL** | Modo WAL para acceso concurrente seguro | `forum/topic-store.ts:40-41` |
 
 ### Path Validation Code
 

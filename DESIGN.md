@@ -648,6 +648,12 @@ bun run coverage     # Run with coverage
 
 ## 15. Changelog
 
+### v0.8.1
+- topicIdIndex optimization (O(1) lookups)
+- vitest.config.ts with coverage
+- api-server-integration.test.ts (3 tests)
+- 186 tests passing
+
 ### v0.8.0
 - Core module refactoring (anti-loop, rate-limiter, SSE manager)
 - 174 tests (up from 152)

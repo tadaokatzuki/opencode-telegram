@@ -1,4 +1,4 @@
-# OpenCode Telegram Integration (v0.8.0)
+# OpenCode Telegram Integration (v0.8.1)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/Bun-%23000000.svg?logo=bun&logoColor=white)](https://bun.sh)
@@ -175,6 +175,9 @@ bun run dev
 
 # Run tests
 bun test
+
+# Run with coverage
+bun run coverage
 
 # Typecheck
 bun run typecheck

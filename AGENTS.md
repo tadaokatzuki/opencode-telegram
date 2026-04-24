@@ -48,8 +48,9 @@ Telegram bot que gestiona instancias de OpenCode a través de forum topics.
 ## Dependencias
 
 - grammy: ^1.42.0
-- typescript: ^5.9.0
-- vitest: ^2.0.0
+- typescript: ^6.0.3
+- vitest: ^4.1.4
+- @types/bun: ^1.1.0
 
 ## Scripts
 

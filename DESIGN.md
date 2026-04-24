@@ -255,30 +255,36 @@ CREATE TABLE bot_stats (
 │  Entry point: createIntegratedApp()                        │
 └─────────────────────┬───────────────────────────────────┘
                        │
-     ┌─────────────────┼─────────────────┐
-     │                 │                 │
-     ▼                 ▼                 ▼
-┌────────┐      ┌────────┐      ┌────────┐
-│ config │      │ utils   │      │ types  │
-│ .env   │      │logger  │      │forum   │
-│ parsing│      │        │      │orchestr│
-└────────┘      └────────┘      └────────┘
-        │                       │
-        ▼                       ▼
-┌─────────────────────────────────────────┐
-│              core/                        │
-├─────────────────────────────────────────┤
-│  anti-loop-manager.ts (loop prevention)  │
-│    - handleEvent()                     │
-│    - startTimers() / cleanupSession()  │
-│  rate-limiter.ts (API rate limiting)  │
-│    - check() / recordSuccess()        │
-│    - recordRateLimitError()           │
-│  sse-subscription-manager.ts (SSE mgmt)│
-│    - register() / cleanup()           │
-│    - getBySession() / getByTopic()    │
-│  config.ts (integration config)      │
-└───────────────────────────────────────┘
+      ┌────────────────┼────────────────┐
+      │                │                │
+      ▼                ▼                ▼
+┌─────────┐     ┌─────────┐     ┌─────────┐
+│ config  │     │ utils   │     │ types   │
+│ .env    │     │logger  │     │forum    │
+│ parsing │     │        │     │orchestr │
+└─────────┘     └─────────┘     └─────────┘
+       │                │                │
+       │                ▼                │
+       │         ┌─────────────┐         │
+       │         │ runtime.ts  │         │
+       │         │(Bun/Node)   │         │
+       │         └─────────────┘         │
+       │                │                │
+       ▼                ▼                ▼
+┌──────────────────────────────────────────────┐
+│              core/                             │
+├──────────────────────────────────────────────┤
+│  anti-loop-manager.ts (loop prevention)        │
+│    - handleEvent()                            │
+│    - startTimers() / cleanupSession()        │
+│  rate-limiter.ts (API rate limiting)          │
+│    - check() / recordSuccess()               │
+│    - recordRateLimitError()                  │
+│  sse-subscription-manager.ts (SSE mgmt)      │
+│    - register() / cleanup()                  │
+│    - getBySession() / getByTopic()           │
+│  config.ts (integration config)              │
+└──────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
 │              forum/                     │

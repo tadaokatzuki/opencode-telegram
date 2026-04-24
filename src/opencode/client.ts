@@ -338,7 +338,6 @@ return response.json() as unknown as Session
     const timeoutSignal = timeoutController.signal
     
     // Timeout para cerrar conexión si dura demasiado
-    let resetTimeoutId: NodeJS.Timeout
     const timeoutId = setTimeout(() => {
       console.log(`[OpenCodeClient] SSE timeout after ${TIMEOUT_MS}ms, aborting`)
       timeoutController.abort()
@@ -361,12 +360,12 @@ return response.json() as unknown as Session
     }
 
     // Wrapper para resetear timeout cuando reciba eventos
-    let resetTimeoutId: NodeJS.Timeout
+    let eventTimeoutId: NodeJS.Timeout
     const wrappedOnEvent = (event: SSEEvent) => {
       clearTimeout(timeoutId)
-      clearTimeout(resetTimeoutId)
+      clearTimeout(eventTimeoutId)
       // Restart timeout timer para mantener conexión activa
-      resetTimeoutId = setTimeout(() => {
+      eventTimeoutId = setTimeout(() => {
         console.log(`[OpenCodeClient] SSE timeout after ${TIMEOUT_MS}ms, aborting`)
         timeoutController.abort()
       }, TIMEOUT_MS)
@@ -376,7 +375,7 @@ return response.json() as unknown as Session
     // Iniciar SSE
     this.startSSE(url, wrappedOnEvent, wrappedOnError, combinedSignal).finally(() => {
       clearTimeout(timeoutId)
-      clearTimeout(resetTimeoutId)
+      clearTimeout(eventTimeoutId)
     })
   }
 

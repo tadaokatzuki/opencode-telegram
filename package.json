@@ -38,7 +38,9 @@
     "coverage": "bun test --coverage"
   },
   "dependencies": {
-    "grammy": "^1.42.0"
+    "grammy": "^1.42.0",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "@hapi/boom": "^10.0.1"
   },
   "devDependencies": {
     "@types/bun": "^1.1.0",

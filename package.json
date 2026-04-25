@@ -1,23 +1,26 @@
 {
-  "name": "opencode-telegram",
-  "version": "0.7.0",
+  "name": "opencode-orquestrator",
+  "version": "0.8.0",
   "type": "module",
-  "description": "Telegram bot that orchestrates multiple OpenCode instances through forum topics",
-  "author": "huynle (forked)",
+  "description": "Bot that orchestrates OpenCode via Telegram topics and WhatsApp groups",
+  "author": "huynle",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/huynle/opencode-telegram.git"
+    "url": "git+https://github.com/huynle/opencode-orquestrator.git"
   },
   "bugs": {
-    "url": "https://github.com/huynle/opencode-telegram/issues"
+    "url": "https://github.com/huynle/opencode-orquestrator/issues"
   },
-  "homepage": "https://github.com/huynle/opencode-telegram#readme",
+  "homepage": "https://github.com/huynle/opencode-orquestrator#readme",
   "keywords": [
     "telegram",
+    "whatsapp",
     "bot",
     "opencode",
     "ai",
+    "orquestrator"
+  ],
     "coding-assistant",
     "grammy",
     "bun",
@@ -38,9 +41,13 @@
     "install:deps": "npm install"
   },
   "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "6",
     "better-sqlite3": "^12.9.0",
     "bun": "^1.3.12",
-    "grammy": "^1.42.0"
+    "grammy": "^1.42.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

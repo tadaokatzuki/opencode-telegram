@@ -178,7 +178,16 @@ export class ApiServer {
           return this.jsonResponse({ error: "Origin not allowed" }, 403, corsHeaders)
         }
 
-        // API key authentication (required)
+        // No API key required for health and WhatsApp endpoints
+        if (url.pathname === "/api/health" && req.method === "GET") {
+          return this.handleHealth(corsHeaders)
+        }
+
+        if (url.pathname.startsWith("/api/whatsapp/") && (req.method === "POST" || req.method === "GET")) {
+          return this.handleWhatsApp(req, corsHeaders, url.pathname)
+        }
+
+        // API key required for other endpoints
         if (!apiKey) {
           return this.jsonResponse({ error: "Server not configured with API key" }, 503, corsHeaders)
         }
@@ -198,9 +207,14 @@ export class ApiServer {
         }
 
         try {
-          // Route requests
-          if (url.pathname === "/api/health" && req.method === "GET") {
-            return this.handleHealth(corsHeaders)
+          // API key required for other endpoints
+          if (!apiKey) {
+            return this.jsonResponse({ error: "Server not configured with API key" }, 503, corsHeaders)
+          }
+          
+          const providedKey = req.headers.get("X-API-Key")
+          if (!providedKey || !this.secureCompare(providedKey, apiKey)) {
+            return this.jsonResponse({ error: "Unauthorized" }, 401, corsHeaders)
           }
 
           if (url.pathname === "/api/register" && req.method === "POST") {
@@ -271,6 +285,71 @@ export class ApiServer {
       200,
       headers
     )
+  }
+
+  private handleWhatsApp(req: Request, headers: Record<string, string>, urlPath: string): Response {
+    const action = urlPath.split('/').pop() || ''
+    
+    if (action === 'send') {
+      return this.handleWhatsAppSend(req, headers)
+    }
+    
+    if (action === 'group') {
+      return this.handleWhatsAppGroup(req, headers)
+    }
+    
+    if (action === 'health') {
+      return this.jsonResponse({ status: 'ok', service: 'whatsapp' }, 200, headers)
+    }
+    
+    return this.jsonResponse({ 
+      error: "Unknown action. Use /api/whatsapp/send, /api/whatsapp/group, or /api/whatsapp/health" 
+    }, 404, headers)
+  }
+
+  private async handleWhatsAppSend(req: Request, headers: Record<string, string>): Promise<Response> {
+    try {
+      const body = await req.json() as { jid: string; text: string; messageKey?: any }
+      const { jid, text, messageKey } = body
+      
+      if (!jid || !text) {
+        return this.jsonResponse({ error: "Missing jid or text" }, 400, headers)
+      }
+      
+      if (!this.whatsappMessageHandler) {
+        return this.jsonResponse({ error: "WhatsApp handler not configured" }, 503, headers)
+      }
+      
+      try {
+        // Call the integration to process the message
+        const result = await this.whatsappMessageHandler(jid, text, messageKey)
+        return this.jsonResponse(result, 200, headers)
+      } catch (e) {
+        return this.jsonResponse({ error: String(e) }, 500, headers)
+      }
+    } catch (error) {
+      return this.jsonResponse({ error: sanitizeError(error) }, 400, headers)
+    }
+  }
+
+  private async handleWhatsAppGroup(req: Request, headers: Record<string, string>): Promise<Response> {
+    const url = new URL(req.url)
+    const jid = url.searchParams.get('jid')
+    
+    if (!jid) {
+      return this.jsonResponse({ error: "Missing jid parameter" }, 400, headers)
+    }
+    
+    if (!this.whatsappGroupCallback) {
+      return this.jsonResponse({ error: "WhatsApp not configured" }, 503, headers)
+    }
+    
+    try {
+      const info = await this.whatsappGroupCallback(jid)
+      return this.jsonResponse(info, 200, headers)
+    } catch (e) {
+      return this.jsonResponse({ error: String(e) }, 500, headers)
+    }
   }
 
   private async handleRegister(
@@ -581,6 +660,21 @@ export class ApiServer {
       }
     }
     return undefined
+  }
+
+  // WhatsApp callbacks - set by integration
+  private whatsappSendCallback: ((jid: string, text: string) => Promise<string>) | null = null
+  private whatsappGroupCallback: ((jid: string) => Promise<{ subject: string; participants: number }>) | null = null
+  private whatsappMessageHandler: ((jid: string, text: string, messageKey?: any) => Promise<{ success: boolean; sessionId?: string; error?: string }>) | null = null
+
+  setWhatsAppCallbacks(
+    sendCallback: (jid: string, text: string) => Promise<string>,
+    groupCallback?: (jid: string) => Promise<{ subject: string; participants: number }>,
+    messageHandler?: (jid: string, text: string, messageKey?: any) => Promise<{ success: boolean; sessionId?: string; error?: string }>
+  ) {
+    this.whatsappSendCallback = sendCallback
+    this.whatsappGroupCallback = groupCallback || null
+    this.whatsappMessageHandler = messageHandler || null
   }
 
   /**

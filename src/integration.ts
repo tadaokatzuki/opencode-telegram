@@ -106,6 +106,12 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
   // Map of sessionId → instanceId for reverse lookup
   const sessionToInstance = new Map<string, string>()
 
+  // Map of sessionId → accumulated response text for WhatsApp
+  const sessionResponses = new Map<string, string>()
+
+  // Map sessionId → { jid, messageKey } for editing messages
+  const pendingWhatsAppMessages = new Map<string, { jid: string; messageKey: any }>()
+
   // === ANTI-LOOP PROTECTION ===
   const MAX_TOOLS = 10           // Max tool calls per session
   const MAX_THINKING = 8         // Max thinking events before abort
@@ -262,6 +268,13 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     sendProgressToMainTopic: false,  // Only show final response in main topic
   })
 
+  // Set up callback to capture text responses as they come in (for WhatsApp)
+  // Store only the latest response (replace, not append)
+  streamHandler.setOnTextResponse((sessionId, text) => {
+    sessionResponses.set(sessionId, text)
+    console.log(`[Integration] Captured text for ${sessionId}: ${text.slice(0, 30)}...`)
+  })
+
   // Create topic store for direct access
   const topicStore = new TopicStore(config.storage.topicDbPath)
 
@@ -269,8 +282,47 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
   const topicNamesUpdated = new Set<string>()
 
   // Set up session idle callback to update topic names after first message
+  // and send WhatsApp response if applicable
   streamHandler.setOnSessionIdle(async (sessionId, chatId, topicId) => {
-    // Only update once per session
+    console.log(`[Integration] Idle callback for session ${sessionId}`)
+    
+    // Check if this is a WhatsApp session
+    const whatsappJid = whatsappSessionToJid.get(sessionId)
+    console.log(`[Integration] WhatsApp JID for session: ${whatsappJid}`)
+    
+    if (whatsappJid && sendToWhatsAppCallback) {
+      try {
+        // Get the accumulated response text
+        const responseText = sessionResponses.get(sessionId) || ''
+        
+        // Get the message key for editing
+        const pendingMsg = pendingWhatsAppMessages.get(sessionId)
+        
+        if (responseText || pendingMsg) {
+          // Just send the response text (trimmed)
+          const formattedText = (responseText || 'Completado!').trim()
+          
+          console.log(`[Integration] Sending WhatsApp response: ${formattedText.slice(0, 50)}...`)
+          
+          // Edit the original message with the response
+          await sendToWhatsAppCallback(whatsappJid, formattedText, pendingMsg?.messageKey)
+          console.log(`[Integration] Edited WhatsApp message for ${whatsappJid}`)
+        } else {
+          // Fallback if no response captured
+          const fallback = 'Completado! session: ' + sessionId.slice(0, 8)
+          console.log(`[Integration] No response captured, sending fallback: ${fallback}`)
+          await sendToWhatsAppCallback(whatsappJid, fallback)
+        }
+        
+        // Clean up
+        sessionResponses.delete(sessionId)
+        pendingWhatsAppMessages.delete(sessionId)
+      } catch (e) {
+        console.error(`[Integration] WhatsApp idle callback error: ${e}`)
+      }
+    }
+
+    // Only update topic name once per session (existing logic)
     if (topicNamesUpdated.has(sessionId)) {
       return
     }
@@ -1888,6 +1940,62 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     corsOrigins: config.apiServer.corsOrigins,
   })
 
+  // Register WhatsApp callbacks on API server
+  // WhatsApp session to JID mapping
+  const whatsappSessionToJid = new Map<string, string>()
+
+  let sendToWhatsAppCallback: ((jid: string, text: string) => Promise<string>) | null = null
+
+  // WhatsApp message handler - routes to topicManager
+  async function handleWhatsAppMessage(jid: string, text: string, messageKey?: any): Promise<{ success: boolean; sessionId?: string; error?: string }> {
+    try {
+      // Calculate topicId from JID
+      const effectiveTopicId = Math.abs(parseInt(jid.replace(/\D/g, '') % 100000))
+      
+      // Create context for topicManager
+      const context = {
+        messageId: 0,
+        chatId: 0, // Not used for WhatsApp
+        topicId: effectiveTopicId,
+        userId: 0,
+        text,
+        isGeneralTopic: false,
+        isReply: false,
+      }
+      
+      // Route message
+      const result = await topicManager.routeMessage(context)
+      
+      if (result.success && result.sessionId) {
+        // Save mapping for later (when session completes)
+        whatsappSessionToJid.set(result.sessionId, jid)
+        console.log(`[Integration] WhatsApp session mapping: ${result.sessionId} -> ${jid}`)
+        
+        // Save message key for editing later
+        if (messageKey) {
+          pendingWhatsAppMessages.set(result.sessionId, { jid, messageKey })
+          console.log(`[Integration] Saved message key for editing: ${result.sessionId}`)
+        }
+      }
+      
+      return { success: result.success, sessionId: result.sessionId, error: result.error }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  }
+
+  apiServer.setWhatsAppCallbacks(async (jid: string, text: string) => {
+    // Try to get callback from app
+    if (sendToWhatsAppCallback) {
+      return sendToWhatsAppCallback(jid, text)
+    }
+    // Default: log
+    console.log(`[Integration] Would send to WhatsApp ${jid}: ${text.slice(0, 30)}...`)
+    return `mock_${Date.now()}`
+  }, async (jid: string) => {
+    return { subject: "WhatsApp Group", participants: 1 }
+  }, handleWhatsAppMessage)
+
   console.log("[Integration] Components initialized")
 
   return {
@@ -1966,6 +2074,46 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
 
     getClient(instanceId: string) {
       return clients.get(instanceId)
+    },
+
+    // Register callback for sending WhatsApp messages
+    setSendWhatsAppCallback(callback: (jid: string, text: string, editKey?: any) => Promise<string>) {
+      sendToWhatsAppCallback = callback
+      console.log("[Integration] WhatsApp send callback registered")
+    },
+
+    // WhatsApp integration - send message via WhatsApp
+    async sendWhatsAppMessage(jid: string, text: string): Promise<string> {
+      const chatId = 0
+      
+      try {
+        console.log(`[Integration] WhatsApp message to ${jid}: ${text.slice(0, 50)}...`)
+        
+        const effectiveTopicId = Math.abs(parseInt(jid.replace(/\D/g, '') % 100000))
+        
+        const result = await topicManager.routeMessage({
+          chatId,
+          topicId: effectiveTopicId,
+          text,
+          userId: jid,
+        })
+        
+        if (!result.success) {
+          throw new Error(result.error || "Failed to route message")
+        }
+        
+        return result.sessionId || `whatsapp_${effectiveTopicId}`
+      } catch (e) {
+        console.error(`[Integration] WhatsApp error: ${e}`)
+        throw e
+      }
+    },
+
+    // Register WhatsApp callback for a specific JID
+    registerWhatsAppCallback(jid: string, callback: (text: string) => Promise<string>) {
+      // Store in the map we created above
+      console.log(`[Integration] Registered WhatsApp callback for ${jid}`)
+      // Note: This won't persist - need to make it work differently
     },
   }
 }

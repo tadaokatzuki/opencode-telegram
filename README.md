@@ -1,16 +1,18 @@
-# OpenCode Telegram Integration (v0.7.0)
+# OpenCode Orquestrator (v0.8.0)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/Bun-%23000000.svg?logo=bun&logoColor=white)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![grammY](https://img.shields.io/badge/grammY-Bot%20Framework-blue)](https://grammy.dev/)
 
-A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instances through forum topics. Each forum topic in a Telegram supergroup gets its own dedicated OpenCode instance, enabling multi-user/multi-project AI assistance.
+A bot that orchestrates multiple [OpenCode](https://opencode.ai) instances through forum topics and WhatsApp. Each forum topic in a Telegram supergroup (or WhatsApp group) gets its own dedicated OpenCode instance, enabling multi-user/multi-project AI assistance.
 
-## Features (v0.7.0)
+## Features (v0.8.0)
 
 - **Forum Topic to OpenCode Instance**: Each topic gets a dedicated OpenCode session
-- **Real-time Streaming**: SSE events from OpenCode are streamed to Telegram as editable messages
+- **WhatsApp Integration**: Connect WhatsApp groups via Baileys
+- **Bidirectional Messaging**: Send from Telegram OR WhatsApp - responses come back to the same channel
+- **Real-time Streaming**: SSE events from OpenCode are streamed as editable messages
 - **Session Discovery**: Connect to any running OpenCode instance on your machine
 - **Instance Lifecycle Management**: Auto-start, health checks, crash recovery, idle timeout
 - **Persistent State**: SQLite databases track topic mappings and instance state across restarts
@@ -28,6 +30,7 @@ A Telegram bot that orchestrates multiple [OpenCode](https://opencode.ai) instan
 
 - [Quick Start](#quick-start)
 - [Running with Docker](#running-with-docker)
+- [WhatsApp Setup](#whatsapp-setup)
 - [Usage](#usage)
 - [Architecture](#architecture)
 - [Security](#security)
@@ -324,8 +327,56 @@ docker stop opencode-telegram
 docker rm opencode-telegram
 
 # Rebuild after code changes
-docker build -t opencode-telegram . && docker compose up -d
+docker build -t opencode-orquestrator . && docker compose up -d
 ```
+
+## WhatsApp Setup
+
+> **Important**: WhatsApp integration requires the bot to run **natively** (not in Docker). This is because Baileys WebSocket connection doesn't work in Docker.
+
+### Prerequisites
+
+- WhatsApp account to link (use a dedicated number, not your main one)
+- The phone number must be able to receive SMS or a QR code scan
+
+### Configuration
+
+```bash
+# Enable WhatsApp
+ENABLE_WHATSAPP=true
+
+# Your phone number (with country code, no +)
+WHATSAPP_PHONE_NUMBER=+1234567890
+```
+
+### First Run (Pairing)
+
+On first run with `ENABLE_WHATSAPP=true`:
+
+1. A QR code will be displayed in terminal
+2. Scan it with your WhatsApp app (Settings → Linked Devices → Link a Device)
+3. The session will be saved for future runs
+
+### WhatsApp + Telegram Groups
+
+1. Add the bot to your WhatsApp group
+2. Get the group invite link
+3. The bot will auto-join when you send the first message
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `/whatsapp-status` | Check WhatsApp connection status |
+| `/whatsapp-qr` | Generate new QR code (if session lost) |
+
+### How It Works
+
+```
+WhatsApp Message → API Server → OpenCode Instance → Edit message with response
+```
+
+Messages from WhatsApp are forwarded to OpenCode. When OpenCode responds, the original message is **edited** to include the response.
 
 ## Usage
 

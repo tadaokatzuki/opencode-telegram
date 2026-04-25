@@ -72,6 +72,9 @@ export class StreamHandler {
   /** Callback fired when a session goes idle */
   private onSessionIdleCallback?: SessionIdleCallback
 
+  /** Callback fired when assistant text is received */
+  private onTextResponseCallback?: (sessionId: string, text: string) => void
+
   constructor(
     sendCallback: TelegramSendCallback,
     deleteCallback?: TelegramDeleteCallback,
@@ -89,6 +92,14 @@ export class StreamHandler {
    */
   setOnSessionIdle(callback: SessionIdleCallback): void {
     this.onSessionIdleCallback = callback
+  }
+
+  /**
+   * Set callback for when assistant text is received (streaming)
+   * Useful for capturing responses to send to WhatsApp
+   */
+  setOnTextResponse(callback: (sessionId: string, text: string) => void): void {
+    this.onTextResponseCallback = callback
   }
 
   // ===========================================================================
@@ -294,6 +305,8 @@ export class StreamHandler {
     // Handle text parts (type: "text")
     if (part.type === "text" && part.text) {
       state.currentText = part.text
+      // Notify text response callback for WhatsApp integration
+      this.onTextResponseCallback?.(sessionId, part.text)
     }
     
     // Handle reasoning/thinking parts

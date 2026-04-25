@@ -14,6 +14,7 @@
 
 import { loadConfig, validateConfig, printConfig } from "./config"
 import { createIntegratedApp } from "./integration"
+import { createWhatsAppClient } from "./whatsapp/client"
 import { mkdir } from "fs/promises"
 
 // =============================================================================
@@ -57,20 +58,64 @@ async function main() {
     // Ignore errors
   }
 
-  // Create the integrated application
+// Create the integrated application
   let app: Awaited<ReturnType<typeof createIntegratedApp>> | undefined
   try {
     app = await createIntegratedApp(config)
   } catch (error) {
     console.error("\n[Error] Failed to initialize application:")
     console.error(error instanceof Error ? error.message : String(error))
-    process.exit(1) // Error de inicialización - 必须 salir
+    process.exit(1) // Error de inicialización -，必须 salir
   }
 
   // Check app was created
   if (!app) {
     console.error("\n[Error] App not initialized properly")
     process.exit(1) // Error de inicialización - 必须 salir
+  }
+
+  // Start WhatsApp client (optional)
+  let whatsapp: Awaited<ReturnType<typeof createWhatsAppClient>> | undefined
+  if (process.env.ENABLE_WHATSAPP === "true") {
+    console.log("\n[WhatsApp] Initializing WhatsApp client...")
+    try {
+      // Build orchestrator URL from app config
+      const orchestratorUrl = app 
+        ? `http://localhost:${config.apiServer.port}`
+        : undefined
+      
+      whatsapp = await createWhatsAppClient({
+        phoneNumber: process.env.WHATSAPP_PHONE_NUMBER,
+        orchestratorUrl,
+      })
+      await whatsapp.start()
+      
+      // Register send callback so orchestrator can send WhatsApp messages
+      if (app) {
+        app.setSendWhatsAppCallback(async (jid: string, text: string, editKey?: any) => {
+          if (whatsapp?.conn) {
+            try {
+              let result
+              if (editKey) {
+                // Edit existing message
+                result = await whatsapp.conn.sendMessage(jid, { text }, { edit: editKey })
+              } else {
+                // Send new message
+                result = await whatsapp.conn.sendMessage(jid, { text })
+              }
+              return result?.key?.id || `sent_${Date.now()}`
+            } catch (e) {
+              console.error(`[Index] WhatsApp send error: ${e}`)
+              throw e
+            }
+          }
+          console.warn(`[Index] WhatsApp not ready, queuing for later`)
+          throw new Error("WhatsApp not ready")
+        })
+      }
+    } catch (error) {
+      console.error("\n[Error] Failed to initialize WhatsApp:", error)
+    }
   }
 
   // Set up graceful shutdown
@@ -85,6 +130,9 @@ async function main() {
     try {
       if (app) {
         await app.stop()
+      }
+      if (whatsapp) {
+        await whatsapp.stop()
       }
       console.log("[Shutdown] Complete")
       return // No process.exit() - dejar que Bun termine naturalmente

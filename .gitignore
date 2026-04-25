@@ -4,3 +4,13 @@ data/
 *.log
 node_modules/
 dist/
+
+# WhatsApp sessions (contains credentials)
+auth/
+
+# OpenCode project directories
+~/oc-bot/
+
+# OS specific
+.DS_Store
+Thumbs.db

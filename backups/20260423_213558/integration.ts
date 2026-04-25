@@ -42,45 +42,6 @@ import { ApiServer, createApiServer } from "./api-server"
 import { mkdir } from "fs/promises"
 
 // =============================================================================
-// Security Helpers
-// =============================================================================
-
-/**
- * Validate that a path is within the allowed base directory
- * Prevents path traversal attacks
- */
-function isPathWithinBase(path: string, basePath: string): boolean {
-  const normalized = path.replace(/\\/g, "/").replace(/\/+/g, "/")
-  const baseNormalized = basePath.replace(/\\/g, "/").replace(/\/+/g, "/")
-  
-  if (!normalized.startsWith(baseNormalized)) {
-    return false
-  }
-  
-  if (normalized.includes("..")) {
-    return false
-  }
-  
-  return true
-}
-
-/**
- * Validate workDir before creating directories
- */
-function validateWorkDir(workDir: string, basePath: string): string | null {
-  if (workDir === "/tmp" || workDir.startsWith("/tmp/")) {
-    return workDir
-  }
-  
-  if (!isPathWithinBase(workDir, basePath)) {
-    console.warn(`[Security] Blocked path traversal attempt: ${workDir} is outside ${basePath}`)
-    return null
-  }
-  
-  return workDir
-}
-
-// =============================================================================
 // Types
 // =============================================================================
 
@@ -144,12 +105,6 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
 
   // Map of sessionId → instanceId for reverse lookup
   const sessionToInstance = new Map<string, string>()
-
-  // Map of sessionId → accumulated response text for WhatsApp
-  const sessionResponses = new Map<string, string>()
-
-  // Map sessionId → { jid, messageKey } for editing messages
-  const pendingWhatsAppMessages = new Map<string, { jid: string; messageKey: any }>()
 
   // === ANTI-LOOP PROTECTION ===
   const MAX_TOOLS = 10           // Max tool calls per session
@@ -307,13 +262,6 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     sendProgressToMainTopic: false,  // Only show final response in main topic
   })
 
-  // Set up callback to capture text responses as they come in (for WhatsApp)
-  // Store only the latest response (replace, not append)
-  streamHandler.setOnTextResponse((sessionId, text) => {
-    sessionResponses.set(sessionId, text)
-    console.log(`[Integration] Captured text for ${sessionId}: ${text.slice(0, 30)}...`)
-  })
-
   // Create topic store for direct access
   const topicStore = new TopicStore(config.storage.topicDbPath)
 
@@ -321,47 +269,8 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
   const topicNamesUpdated = new Set<string>()
 
   // Set up session idle callback to update topic names after first message
-  // and send WhatsApp response if applicable
   streamHandler.setOnSessionIdle(async (sessionId, chatId, topicId) => {
-    console.log(`[Integration] Idle callback for session ${sessionId}`)
-    
-    // Check if this is a WhatsApp session
-    const whatsappJid = whatsappSessionToJid.get(sessionId)
-    console.log(`[Integration] WhatsApp JID for session: ${whatsappJid}`)
-    
-    if (whatsappJid && sendToWhatsAppCallback) {
-      try {
-        // Get the accumulated response text
-        const responseText = sessionResponses.get(sessionId) || ''
-        
-        // Get the message key for editing
-        const pendingMsg = pendingWhatsAppMessages.get(sessionId)
-        
-        if (responseText || pendingMsg) {
-          // Just send the response text (trimmed)
-          const formattedText = (responseText || 'Completado!').trim()
-          
-          console.log(`[Integration] Sending WhatsApp response: ${formattedText.slice(0, 50)}...`)
-          
-          // Edit the original message with the response
-          await sendToWhatsAppCallback(whatsappJid, formattedText, pendingMsg?.messageKey)
-          console.log(`[Integration] Edited WhatsApp message for ${whatsappJid}`)
-        } else {
-          // Fallback if no response captured
-          const fallback = 'Completado! session: ' + sessionId.slice(0, 8)
-          console.log(`[Integration] No response captured, sending fallback: ${fallback}`)
-          await sendToWhatsAppCallback(whatsappJid, fallback)
-        }
-        
-        // Clean up
-        sessionResponses.delete(sessionId)
-        pendingWhatsAppMessages.delete(sessionId)
-      } catch (e) {
-        console.error(`[Integration] WhatsApp idle callback error: ${e}`)
-      }
-    }
-
-    // Only update topic name once per session (existing logic)
+    // Only update once per session
     if (topicNamesUpdated.has(sessionId)) {
       return
     }
@@ -1077,19 +986,10 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
 
 // Ensure directory exists (only for non-linked directories)
     if (!mapping?.workDir && config.project.autoCreateDirs) {
-      const validatedWorkDir = validateWorkDir(workDir, config.project.basePath)
-      
-      if (!validatedWorkDir) {
-        await sendToTopic(bot, chatId, effectiveTopicId, 
-          "Invalid directory path. Please contact the administrator."
-        )
-        return { success: false, error: "Path traversal attempt blocked" }
-      }
-      
       try {
-        await mkdir(validatedWorkDir, { recursive: true })
+        await mkdir(workDir, { recursive: true })
       } catch (error) {
-        console.error(`[Integration] Failed to create directory ${validatedWorkDir}:`, error)
+        console.error(`[Integration] Failed to create directory ${workDir}:`, error)
       }
     }
     
@@ -1643,19 +1543,10 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
       // Create directory in PROJECT_BASE_PATH
       const workDir = `${config.project.basePath}/${topicName}`
       
-      // Validate directory path before creating
-      const validatedWorkDir = validateWorkDir(workDir, config.project.basePath)
-      if (!validatedWorkDir) {
-        return {
-          success: false,
-          error: "Invalid directory path. Path traversal attempt blocked.",
-        }
-      }
-      
       // Create the directory
       try {
-        await mkdir(validatedWorkDir, { recursive: true })
-        console.log(`[Integration] Created directory: ${validatedWorkDir}`)
+        await mkdir(workDir, { recursive: true })
+        console.log(`[Integration] Created directory: ${workDir}`)
       } catch (error) {
         return {
           success: false,
@@ -1759,8 +1650,8 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
 
     try {
       // Read the project base directory
-      const result = await rt.$.quietDirect(`ls -1 ${basePath} 2>/dev/null`)
-      const dirNames = (result.stdout || "").toString().trim().split('\n').filter(Boolean)
+      const result = await rt.$.quiet`ls -1 ${basePath} 2>/dev/null`
+      const dirNames = result.stdout.toString().trim().split('\n').filter(Boolean)
 
       // Get all active sessions for cross-referencing
       const activeSessions = await getActiveSessions()
@@ -1770,7 +1661,7 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
         
         // Check if it's a directory
         try {
-          const isDir = await rt.$.quietDirect(`test -d ${fullPath}`)
+          const isDir = await rt.$.quiet`test -d ${fullPath}`
           if (isDir.exitCode !== 0) continue
         } catch {
           continue
@@ -1997,62 +1888,6 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
     corsOrigins: config.apiServer.corsOrigins,
   })
 
-  // Register WhatsApp callbacks on API server
-  // WhatsApp session to JID mapping
-  const whatsappSessionToJid = new Map<string, string>()
-
-  let sendToWhatsAppCallback: ((jid: string, text: string) => Promise<string>) | null = null
-
-  // WhatsApp message handler - routes to topicManager
-  async function handleWhatsAppMessage(jid: string, text: string, messageKey?: any): Promise<{ success: boolean; sessionId?: string; error?: string }> {
-    try {
-      // Calculate topicId from JID
-      const effectiveTopicId = Math.abs(parseInt(jid.replace(/\D/g, '') % 100000))
-      
-      // Create context for topicManager
-      const context = {
-        messageId: 0,
-        chatId: 0, // Not used for WhatsApp
-        topicId: effectiveTopicId,
-        userId: 0,
-        text,
-        isGeneralTopic: false,
-        isReply: false,
-      }
-      
-      // Route message
-      const result = await topicManager.routeMessage(context)
-      
-      if (result.success && result.sessionId) {
-        // Save mapping for later (when session completes)
-        whatsappSessionToJid.set(result.sessionId, jid)
-        console.log(`[Integration] WhatsApp session mapping: ${result.sessionId} -> ${jid}`)
-        
-        // Save message key for editing later
-        if (messageKey) {
-          pendingWhatsAppMessages.set(result.sessionId, { jid, messageKey })
-          console.log(`[Integration] Saved message key for editing: ${result.sessionId}`)
-        }
-      }
-      
-      return { success: result.success, sessionId: result.sessionId, error: result.error }
-    } catch (e) {
-      return { success: false, error: String(e) }
-    }
-  }
-
-  apiServer.setWhatsAppCallbacks(async (jid: string, text: string) => {
-    // Try to get callback from app
-    if (sendToWhatsAppCallback) {
-      return sendToWhatsAppCallback(jid, text)
-    }
-    // Default: log
-    console.log(`[Integration] Would send to WhatsApp ${jid}: ${text.slice(0, 30)}...`)
-    return `mock_${Date.now()}`
-  }, async (jid: string) => {
-    return { subject: "WhatsApp Group", participants: 1 }
-  }, handleWhatsAppMessage)
-
   console.log("[Integration] Components initialized")
 
   return {
@@ -2131,46 +1966,6 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
 
     getClient(instanceId: string) {
       return clients.get(instanceId)
-    },
-
-    // Register callback for sending WhatsApp messages
-    setSendWhatsAppCallback(callback: (jid: string, text: string, editKey?: any) => Promise<string>) {
-      sendToWhatsAppCallback = callback
-      console.log("[Integration] WhatsApp send callback registered")
-    },
-
-    // WhatsApp integration - send message via WhatsApp
-    async sendWhatsAppMessage(jid: string, text: string): Promise<string> {
-      const chatId = 0
-      
-      try {
-        console.log(`[Integration] WhatsApp message to ${jid}: ${text.slice(0, 50)}...`)
-        
-        const effectiveTopicId = Math.abs(parseInt(jid.replace(/\D/g, '') % 100000))
-        
-        const result = await topicManager.routeMessage({
-          chatId,
-          topicId: effectiveTopicId,
-          text,
-          userId: jid,
-        })
-        
-        if (!result.success) {
-          throw new Error(result.error || "Failed to route message")
-        }
-        
-        return result.sessionId || `whatsapp_${effectiveTopicId}`
-      } catch (e) {
-        console.error(`[Integration] WhatsApp error: ${e}`)
-        throw e
-      }
-    },
-
-    // Register WhatsApp callback for a specific JID
-    registerWhatsAppCallback(jid: string, callback: (text: string) => Promise<string>) {
-      // Store in the map we created above
-      console.log(`[Integration] Registered WhatsApp callback for ${jid}`)
-      // Note: This won't persist - need to make it work differently
     },
   }
 }

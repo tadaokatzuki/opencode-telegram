@@ -84,6 +84,7 @@ export interface ApiServerConfig {
 export class ApiServer {
   private server?: any
   private externalInstances = new Map<string, ExternalInstance>()
+  private topicIdIndex = new Map<number, ExternalInstance>() // Secondary index for topicId lookups
   private config: ApiServerConfig
   private rateLimitMap = new Map<string, { count: number; resetAt: number }>()
   private readonly RATE_LIMIT_WINDOW_MS = 300000 // 5 minutes (was 1 minute)
@@ -500,6 +501,7 @@ export class ApiServer {
         lastActivityAt: new Date(),
       }
       this.externalInstances.set(projectPath, instance)
+      this.topicIdIndex.set(topicId, instance) // Secondary index for O(1) lookup
 
       // Create topic mapping in store
       this.config.topicStore.createMapping(chatId, topicId, projectName, sessionId, {})
@@ -566,6 +568,7 @@ export class ApiServer {
 
     // Remove from tracking
     this.externalInstances.delete(body.projectPath)
+    this.topicIdIndex.delete(instance.topicId) // Remove from secondary index
 
     // Update topic store
     this.config.topicStore.updateStatus(
@@ -642,24 +645,14 @@ export class ApiServer {
    * Check if a topic is linked to an external instance
    */
   isExternalTopic(topicId: number): boolean {
-    for (const instance of this.externalInstances.values()) {
-      if (instance.topicId === topicId) {
-        return true
-      }
-    }
-    return false
+    return this.topicIdIndex.has(topicId)
   }
 
   /**
    * Get external instance by topic ID
    */
   getExternalByTopic(topicId: number): ExternalInstance | undefined {
-    for (const instance of this.externalInstances.values()) {
-      if (instance.topicId === topicId) {
-        return instance
-      }
-    }
-    return undefined
+    return this.topicIdIndex.get(topicId)
   }
 
   // WhatsApp callbacks - set by integration
@@ -801,6 +794,11 @@ export class ApiServer {
  */
 export function createApiServer(config: ApiServerConfig): ApiServer {
   const server = new ApiServer(config)
-  server.start()
+  try {
+    server.start()
+  } catch (error) {
+    console.error("[ApiServer] Failed to start:", error)
+    throw error
+  }
   return server
 }

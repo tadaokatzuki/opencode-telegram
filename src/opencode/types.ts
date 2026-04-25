@@ -29,6 +29,18 @@ export interface Session {
   status?: "idle" | "running" | "error"
 }
 
+// =============================================================================
+// Generic API Response
+// =============================================================================
+
+/**
+ * Generic API response wrapper
+ */
+export interface ApiResponse<T = unknown> {
+  data?: T
+  error?: string
+}
+
 /**
  * Message part types
  */

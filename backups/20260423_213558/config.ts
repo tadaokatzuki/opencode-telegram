@@ -1,0 +1,425 @@
+/**
+ * Configuration Management
+ * 
+ * Loads and validates configuration from environment variables.
+ */
+
+import type { ManagerConfig, PortPoolConfig } from "./types/orchestrator"
+import type { TopicManagerConfig } from "./types/forum"
+
+// =============================================================================
+// Configuration Types
+// =============================================================================
+
+/**
+ * Telegram bot configuration
+ */
+export interface TelegramConfig {
+  /** Bot token from @BotFather */
+  botToken: string
+  
+  /** Supergroup chat ID (negative number) */
+  chatId: number
+  
+  /** Allowed user IDs (empty = all users) */
+  allowedUserIds: number[]
+  
+  /** Whether to handle the General topic */
+  handleGeneralTopic: boolean
+  
+  /** Debug topic ID (where process logs will be sent) */
+  debugTopicId?: number
+}
+
+/**
+ * OpenCode configuration
+ */
+export interface OpenCodeConfig {
+  /** Path to opencode binary */
+  binaryPath: string
+  
+  /** Maximum concurrent instances */
+  maxInstances: number
+  
+  /** Idle timeout in milliseconds */
+  idleTimeoutMs: number
+  
+  /** Port range start */
+  portStart: number
+  
+  /** Port range size */
+  portPoolSize: number
+  
+  /** Health check interval in milliseconds */
+  healthCheckIntervalMs: number
+  
+  /** Startup timeout in milliseconds */
+  startupTimeoutMs: number
+  
+  /** Stale topic timeout in milliseconds (topics with no activity will be cleaned up) */
+  staleTopicTimeoutMs: number
+  
+  /** Stale topic cleanup interval in milliseconds */
+  staleTopicCleanupIntervalMs: number
+
+  /** External OpenCode port (0 = disabled) */
+  externalPort: number
+  
+  /** Allowed ports for external connections (whitelist to prevent SSRF) */
+  allowedExternalPorts: number[]
+}
+
+/**
+ * Storage configuration
+ */
+export interface StorageConfig {
+  /** Path to orchestrator SQLite database */
+  orchestratorDbPath: string
+  
+  /** Path to topic store SQLite database */
+  topicDbPath: string
+}
+
+/**
+ * Project configuration
+ */
+export interface ProjectConfig {
+  /** Base path for projects (topics will create subdirectories here) */
+  basePath: string
+  
+  /** Whether to auto-create project directories */
+  autoCreateDirs: boolean
+}
+
+/**
+ * API Server configuration
+ */
+export interface ApiServerConfig {
+  /** Port for the API server */
+  port: number
+  
+  /** API key for authentication */
+  apiKey: string
+  
+  /** Allowed CORS origins */
+  corsOrigins: string
+}
+
+/**
+ * Full application configuration
+ */
+export interface AppConfig {
+  telegram: TelegramConfig
+  opencode: OpenCodeConfig
+  storage: StorageConfig
+  project: ProjectConfig
+  apiServer: ApiServerConfig
+}
+
+// =============================================================================
+// Default Values
+// =============================================================================
+
+const DEFAULT_CONFIG: AppConfig = {
+  telegram: {
+    botToken: "",
+    chatId: 0,
+    allowedUserIds: [],
+    handleGeneralTopic: true,
+  },
+  opencode: {
+    binaryPath: "opencode",
+    maxInstances: 10,
+    idleTimeoutMs: 30 * 60 * 1000,
+    portStart: 4100,
+    portPoolSize: 100,
+    healthCheckIntervalMs: 30_000,
+    startupTimeoutMs: 60_000,
+    staleTopicTimeoutMs: 24 * 60 * 60 * 1000, // 24 hours - disable auto-close
+    staleTopicCleanupIntervalMs: 0, // Disable cleanup
+    externalPort: 0,
+    allowedExternalPorts: [4096], // Default allowed port for external OpenCode
+  } as OpenCodeConfig,
+  storage: {
+    orchestratorDbPath: "./data/orchestrator.db",
+    topicDbPath: "./data/topics.db",
+  },
+  project: {
+    basePath: `${process.env.HOME || "/tmp"}/oc-bot`,
+    autoCreateDirs: true,
+  },
+  apiServer: {
+    port: parseIntEnv("API_PORT", 4200),
+    apiKey: getEnv("API_KEY", ""),
+    corsOrigins: getEnv("CORS_ORIGINS", "*"),
+  },
+}
+
+// =============================================================================
+// Configuration Loading
+// =============================================================================
+
+/**
+ * Load configuration from environment variables
+ */
+export function loadConfig(): AppConfig {
+  const config: AppConfig = {
+    telegram: {
+      botToken: requireEnv("TELEGRAM_BOT_TOKEN"),
+      chatId: parseIntEnv("TELEGRAM_CHAT_ID", 0),
+      allowedUserIds: parseIntArrayEnv("TELEGRAM_ALLOWED_USERS"),
+      handleGeneralTopic: parseBoolEnv("HANDLE_GENERAL_TOPIC", true),
+      debugTopicId: parseIntEnv("DEBUG_TOPIC_ID", 0) || undefined,
+    },
+opencode: {
+      binaryPath: getEnv("OPENCODE_PATH", DEFAULT_CONFIG.opencode.binaryPath),
+      maxInstances: parseIntEnv("OPENCODE_MAX_INSTANCES", DEFAULT_CONFIG.opencode.maxInstances),
+      idleTimeoutMs: parseIntEnv("OPENCODE_IDLE_TIMEOUT_MS", DEFAULT_CONFIG.opencode.idleTimeoutMs),
+      portStart: parseIntEnv("OPENCODE_PORT_START", DEFAULT_CONFIG.opencode.portStart),
+      portPoolSize: parseIntEnv("OPENCODE_PORT_POOL_SIZE", DEFAULT_CONFIG.opencode.portPoolSize),
+      healthCheckIntervalMs: parseIntEnv("OPENCODE_HEALTH_CHECK_INTERVAL_MS", DEFAULT_CONFIG.opencode.healthCheckIntervalMs),
+      startupTimeoutMs: parseIntEnv("OPENCODE_STARTUP_TIMEOUT_MS", DEFAULT_CONFIG.opencode.startupTimeoutMs),
+      staleTopicTimeoutMs: parseIntEnv("STALE_TOPIC_TIMEOUT_MS", DEFAULT_CONFIG.opencode.staleTopicTimeoutMs),
+      staleTopicCleanupIntervalMs: parseIntEnv("STALE_CLEANUP_INTERVAL_MS", DEFAULT_CONFIG.opencode.staleTopicCleanupIntervalMs),
+      externalPort: parseIntEnv("OPENCODE_EXTERNAL_PORT", 0),
+      allowedExternalPorts: parseIntArrayEnv("ALLOWED_EXTERNAL_PORTS", DEFAULT_CONFIG.opencode.allowedExternalPorts),
+    },
+    storage: {
+      orchestratorDbPath: getEnv("ORCHESTRATOR_DB_PATH", DEFAULT_CONFIG.storage.orchestratorDbPath),
+      topicDbPath: getEnv("TOPIC_DB_PATH", DEFAULT_CONFIG.storage.topicDbPath),
+    },
+    project: {
+      basePath: getEnv("PROJECT_BASE_PATH", DEFAULT_CONFIG.project.basePath),
+      autoCreateDirs: parseBoolEnv("AUTO_CREATE_PROJECT_DIRS", DEFAULT_CONFIG.project.autoCreateDirs),
+    },
+    apiServer: {
+      port: parseIntEnv("API_PORT", DEFAULT_CONFIG.apiServer.port),
+      apiKey: getEnv("API_KEY", DEFAULT_CONFIG.apiServer.apiKey),
+      corsOrigins: getEnv("CORS_ORIGINS", DEFAULT_CONFIG.apiServer.corsOrigins),
+    },
+  }
+
+  return config
+}
+
+/**
+ * Validate that the OpenCode binary exists and is executable
+ */
+import rt from "./runtime"
+
+export async function validateOpenCodeBinary(binaryPath: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    const file = rt.file(binaryPath)
+    if (!await file.exists()) {
+      const which = await rt.$.text`which ${binaryPath}`
+      if (!which.trim()) {
+        return { valid: false, error: `OpenCode binary not found: ${binaryPath}` }
+      }
+      return { valid: true }
+    }
+    
+    try {
+      await rt.$.quiet`test -x ${binaryPath}`
+      return { valid: true }
+    } catch {
+      return { valid: true }
+    }
+  } catch (error) {
+    return { valid: false, error: error instanceof Error ? error.message : "Unknown error" }
+  }
+}
+
+/**
+ * Validate configuration
+ */
+export function validateConfig(config: AppConfig): { valid: boolean; errors: string[] } {
+  const errors: string[] = []
+
+  // Telegram validation
+  if (!config.telegram.botToken) {
+    errors.push("TELEGRAM_BOT_TOKEN is required")
+  }
+  if (!config.telegram.chatId) {
+    errors.push("TELEGRAM_CHAT_ID is required")
+  }
+
+  // OpenCode validation
+  if (config.opencode.maxInstances < 1) {
+    errors.push("OPENCODE_MAX_INSTANCES must be at least 1")
+  }
+  if (config.opencode.portPoolSize < config.opencode.maxInstances) {
+    errors.push("OPENCODE_PORT_POOL_SIZE must be >= OPENCODE_MAX_INSTANCES")
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  }
+}
+
+/**
+ * Sanitize error messages for user-facing output
+ * Removes internal paths, stack traces, and sensitive information
+ */
+export function sanitizeError(error: unknown): string {
+  if (!error) return "An unknown error occurred"
+  
+  let message: string
+  if (error instanceof Error) {
+    message = error.message
+  } else if (typeof error === "string") {
+    message = error
+  } else {
+    return "An internal error occurred"
+  }
+  
+  // Patterns that indicate internal/system information that shouldn't be exposed
+  const sensitivePatterns = [
+    // File paths that might reveal project structure
+    { pattern: /\/?[\w\-\.]+\/[\w\-\.\/]+(\/node_modules|\/src|\/dist|\/\.)/g, replacement: "[path]" },
+    // Stack trace lines
+    { pattern: /at\s+[\w\.$<>]+\s+\([^)]+\)/g, replacement: "" },
+    // Error codes in brackets
+    { pattern: /\[(?:ERR_|E_)[A-Z0-9_]+\]/gi, replacement: "" },
+    // Port numbers and internal addresses
+    { pattern: /localhost:\d+/g, replacement: "[host]" },
+    { pattern: /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: "[ip]" },
+    // Home directory paths
+    { pattern: RegExp(process.env.HOME?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") || "/home/[^/]+", "g"), replacement: "~" },
+    // Absolute paths starting with /
+    { pattern: /\/[\w\-\.]+(\/[\w\-\.]+){2,}/g, replacement: "[path]" },
+    // Database paths
+    { pattern: /\.db\b/g, replacement: "[db]" },
+    // Environment variable names
+    { pattern: /\$\{?[\w_]+\}?/g, replacement: "[env]" },
+  ]
+  
+  let sanitized = message
+  
+  for (const { pattern, replacement } of sensitivePatterns) {
+    sanitized = sanitized.replace(pattern, replacement)
+  }
+  
+  // Remove any remaining multi-line content (stack traces)
+  sanitized = sanitized.split("\n")[0]
+  
+  // Trim and limit length
+  sanitized = sanitized.trim().slice(0, 200)
+  
+  // If the result is too generic or empty, use a safe default
+  if (!sanitized || sanitized.length < 3) {
+    return "An internal error occurred"
+  }
+  
+  return sanitized
+}
+
+// =============================================================================
+// Configuration Converters
+// =============================================================================
+
+/**
+ * Convert AppConfig to ManagerConfig for the orchestrator
+ */
+export function toManagerConfig(config: AppConfig): Partial<ManagerConfig> {
+  return {
+    maxInstances: config.opencode.maxInstances,
+    portPool: {
+      startPort: config.opencode.portStart,
+      poolSize: config.opencode.portPoolSize,
+    },
+    healthCheckIntervalMs: config.opencode.healthCheckIntervalMs,
+    startupTimeoutMs: config.opencode.startupTimeoutMs,
+    defaultIdleTimeoutMs: config.opencode.idleTimeoutMs,
+    statePath: config.storage.orchestratorDbPath,
+    opencodePath: config.opencode.binaryPath,
+  }
+}
+
+/**
+ * Convert AppConfig to TopicManagerConfig
+ */
+export function toTopicManagerConfig(config: AppConfig): TopicManagerConfig {
+  return {
+    databasePath: config.storage.topicDbPath,
+    autoCreateSessions: true,
+    handleGeneralTopic: config.telegram.handleGeneralTopic,
+  }
+}
+
+// =============================================================================
+// Environment Helpers
+// =============================================================================
+
+function getEnv(key: string, defaultValue: string): string {
+  return process.env[key] ?? defaultValue
+}
+
+function requireEnv(key: string): string {
+  const value = process.env[key]
+  if (!value) {
+    throw new Error(`Required environment variable ${key} is not set`)
+  }
+  return value
+}
+
+function parseIntEnv(key: string, defaultValue: number): number {
+  const value = process.env[key]
+  if (!value) return defaultValue
+  const parsed = parseInt(value, 10)
+  return isNaN(parsed) ? defaultValue : parsed
+}
+
+function parseBoolEnv(key: string, defaultValue: boolean): boolean {
+  const value = process.env[key]?.toLowerCase()
+  if (!value) return defaultValue
+  return value === "true" || value === "1" || value === "yes"
+}
+
+function parseIntArrayEnv(key: string, defaultValue: number[] = []): number[] {
+  const value = process.env[key]
+  if (!value) return defaultValue
+  return value
+    .split(",")
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => !isNaN(n))
+}
+
+// =============================================================================
+// Configuration Display
+// =============================================================================
+
+/**
+ * Print configuration (with sensitive values masked)
+ */
+export function printConfig(config: AppConfig): void {
+  console.log("\n=== Configuration ===")
+  console.log("\nTelegram:")
+  console.log(`  Bot Token: ${maskToken(config.telegram.botToken)}`)
+  console.log(`  Chat ID: ${config.telegram.chatId}`)
+  console.log(`  Allowed Users: ${config.telegram.allowedUserIds.length > 0 ? config.telegram.allowedUserIds.join(", ") : "(all)"}`)
+  console.log(`  Handle General Topic: ${config.telegram.handleGeneralTopic}`)
+  
+  console.log("\nOpenCode:")
+  console.log(`  Binary Path: ${config.opencode.binaryPath}`)
+  console.log(`  Max Instances: ${config.opencode.maxInstances}`)
+  console.log(`  Idle Timeout: ${config.opencode.idleTimeoutMs / 1000 / 60} minutes`)
+  console.log(`  Port Range: ${config.opencode.portStart}-${config.opencode.portStart + config.opencode.portPoolSize - 1}`)
+  console.log(`  Stale Topic Timeout: ${config.opencode.staleTopicTimeoutMs / 1000 / 60} minutes`)
+  console.log(`  Stale Cleanup Interval: ${config.opencode.staleTopicCleanupIntervalMs / 1000 / 60} minutes`)
+  
+  console.log("\nStorage:")
+  console.log(`  Orchestrator DB: ${config.storage.orchestratorDbPath}`)
+  console.log(`  Topic DB: ${config.storage.topicDbPath}`)
+  
+  console.log("\nProject:")
+  console.log(`  Base Path: ${config.project.basePath}`)
+  console.log(`  Auto-create Dirs: ${config.project.autoCreateDirs}`)
+  console.log("")
+}
+
+function maskToken(token: string): string {
+  if (!token) return "(not set)"
+  if (token.length < 10) return "****"
+  return token.slice(0, 5) + "..." + token.slice(-4)
+}

@@ -13,6 +13,7 @@ import {
   type MessagesResponse,
   type SendMessageRequest,
   type CreateSessionRequest,
+  type ApiResponse,
   type SSEEvent,
   DEFAULT_CLIENT_CONFIG,
   OpenCodeClientError,
@@ -45,7 +46,7 @@ export class OpenCodeClient {
    */
   async health(): Promise<HealthResponse> {
     const response = await this.fetch("/global/health")
-    return response.json()
+    return response.json() as unknown as HealthResponse
   }
 
   /**
@@ -80,7 +81,7 @@ export class OpenCodeClient {
   async getSession(sessionId: string): Promise<Session | null> {
     try {
       const response = await this.fetch(`/session/${sessionId}`)
-      return response.json()
+return response.json() as unknown as Session
     } catch (error) {
       if (error instanceof OpenCodeClientError && error.code === "NOT_FOUND") {
         return null
@@ -97,7 +98,7 @@ export class OpenCodeClient {
       method: "POST",
       body: JSON.stringify(options ?? {}),
     })
-    return response.json()
+    return response.json() as unknown as Session
   }
 
   /**
@@ -118,7 +119,7 @@ export class OpenCodeClient {
    */
   async getMessages(sessionId: string): Promise<Message[]> {
     const response = await this.fetch(`/session/${sessionId}/message`)
-    const data: MessagesResponse = await response.json()
+    const data = await response.json() as MessagesResponse
     return data.data
   }
 
@@ -143,7 +144,7 @@ export class OpenCodeClient {
       body: JSON.stringify(body),
     })
 
-    return response.json()
+    return response.json() as unknown as Message[]
   }
 
   /**
@@ -271,7 +272,7 @@ export class OpenCodeClient {
    */
   async findInFiles(pattern: string): Promise<Array<{ path: string; line: number; match: string }>> {
     const response = await this.fetch(`/find?pattern=${encodeURIComponent(pattern)}`)
-    return response.json()
+    return response.json() as unknown as Array<{ path: string; line: number; match: string }>
   }
 
   /**
@@ -279,7 +280,7 @@ export class OpenCodeClient {
    */
   async findFiles(query: string): Promise<string[]> {
     const response = await this.fetch(`/find/file?query=${encodeURIComponent(query)}`)
-    return response.json()
+    return response.json() as unknown as string[]
   }
 
   /**
@@ -357,10 +358,24 @@ export class OpenCodeClient {
       clearTimeout(timeoutId)
       onError?.(error)
     }
-    
-    // Iniciar SSE
-    this.startSSE(url, onEvent, wrappedOnError, combinedSignal).finally(() => {
+
+    // Wrapper para resetear timeout cuando reciba eventos
+    let eventTimeoutId: NodeJS.Timeout
+    const wrappedOnEvent = (event: SSEEvent) => {
       clearTimeout(timeoutId)
+      clearTimeout(eventTimeoutId)
+      // Restart timeout timer para mantener conexión activa
+      eventTimeoutId = setTimeout(() => {
+        console.log(`[OpenCodeClient] SSE timeout after ${TIMEOUT_MS}ms, aborting`)
+        timeoutController.abort()
+      }, TIMEOUT_MS)
+      onEvent(event)
+    }
+
+    // Iniciar SSE
+    this.startSSE(url, wrappedOnEvent, wrappedOnError, combinedSignal).finally(() => {
+      clearTimeout(timeoutId)
+      clearTimeout(eventTimeoutId)
     })
   }
 

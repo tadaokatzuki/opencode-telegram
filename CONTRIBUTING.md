@@ -66,15 +66,22 @@ bun run typecheck
 
 ```
 src/
-├── index.ts              # Entry point
-├── config.ts             # Configuration
-├── integration.ts        # Main orchestration
-├── api-server.ts         # External API
-├── bot/handlers/         # Telegram command handlers
-├── forum/                # Topic management
-├── opencode/             # OpenCode client & streaming
-├── orchestrator/         # Instance lifecycle management
-└── types/                # TypeScript type definitions
+├── index.ts             # Entry point
+├── config.ts            # Configuration
+├── integration.ts      # Main orchestration (2000+ lines)
+├── api-server.ts        # External API (REST)
+├── runtime.ts           # Bun/Node compatibility
+├── core/                # Core utilities
+│   ├── anti-loop-manager.ts
+│   ├── rate-limiter.ts
+│   ├── sse-subscription-manager.ts
+│   └── config.ts
+├── bot/handlers/       # Telegram handlers
+├── forum/              # Topic management
+├── opencode/           # OpenCode client & streaming
+├── orchestrator/       # Instance lifecycle management
+├── types/              # TypeScript type definitions
+└── utils/             # Utilities
 ```
 
 ## Making Changes

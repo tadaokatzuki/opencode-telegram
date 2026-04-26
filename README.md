@@ -122,8 +122,8 @@ nano .env
 
 ```bash
 # Clonar el repositorio
-git clone https://github.com/huynle/opencode-telegram.git
-cd opencode-telegram
+git clone https://github.com/huynle/opencode-orquestrator.git
+cd opencode-orquestrator
 
 # Instalar dependencias
 bun install
@@ -160,8 +160,8 @@ bun --version
 curl -fsSL https://opencode.ai/install.sh | bash
 
 # 4. Clonar el proyecto
-git clone https://github.com/huynle/opencode-telegram.git
-cd opencode-telegram
+git clone https://github.com/huynle/opencode-orquestrator.git
+cd opencode-orquestrator
 
 # 5. Instalar dependencias
 bun install
@@ -217,7 +217,7 @@ The bot's session discovery feature uses `ps` and `lsof` to find OpenCode instan
 ### Build the Image
 
 ```bash
-docker build -t opencode-telegram .
+docker build -t opencode-orquestrator .
 ```
 
 ### Option 1: Managed Instances Only
@@ -225,12 +225,12 @@ docker build -t opencode-telegram .
 If you only use `/new` to create instances (no discovery of external sessions):
 
 ```bash
-docker run -d --name opencode-telegram \
+docker run -d --name opencode-orquestrator \
   --network=host \
   -v $(pwd)/data:/app/data \
   -v ~/oc-bot:/root/oc-bot \
   --env-file .env \
-  opencode-telegram
+  opencode-orquestrator
 ```
 
 **Volume Mounts:**
@@ -244,13 +244,13 @@ docker run -d --name opencode-telegram \
 On Linux, you can share the host's process namespace to enable discovery:
 
 ```bash
-docker run -d --name opencode-telegram \
+docker run -d --name opencode-orquestrator \
   --network=host \
   --pid=host \
   -v $(pwd)/data:/app/data \
   -v ~/oc-bot:/root/oc-bot \
   --env-file .env \
-  opencode-telegram
+  opencode-orquestrator
 ```
 
 > **Warning**: `--pid=host` shares the host's process namespace with the container. The container can see all host processes.
@@ -261,12 +261,12 @@ Run the bot in Docker and manually register OpenCode instances via the API:
 
 ```bash
 # Start the bot
-docker run -d --name opencode-telegram \
+docker run -d --name opencode-orquestrator \
   --network=host \
   -v $(pwd)/data:/app/data \
   -v ~/oc-bot:/root/oc-bot \
   --env-file .env \
-  opencode-telegram
+  opencode-orquestrator
 
 # Register an OpenCode instance running on the host
 curl -X POST http://localhost:4200/api/register \
@@ -292,9 +292,9 @@ On macOS and Windows, Docker Desktop runs containers in a Linux VM:
 version: '3.8'
 
 services:
-  opencode-telegram:
+  opencode-orquestrator:
     build: .
-    container_name: opencode-telegram
+    container_name: opencode-orquestrator
     network_mode: host
     # Uncomment for discovery (Linux only):
     # pid: host
@@ -315,16 +315,16 @@ docker compose logs -f
 
 ```bash
 # View logs
-docker logs -f opencode-telegram
+docker logs -f opencode-orquestrator
 
 # Check container status
-docker ps -a --filter name=opencode-telegram
+docker ps -a --filter name=opencode-orquestrator
 
 # Stop the bot
-docker stop opencode-telegram
+docker stop opencode-orquestrator
 
 # Remove container
-docker rm opencode-telegram
+docker rm opencode-orquestrator
 
 # Rebuild after code changes
 docker build -t opencode-orquestrator . && docker compose up -d

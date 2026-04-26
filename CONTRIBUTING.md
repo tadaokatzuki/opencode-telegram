@@ -22,12 +22,12 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/opencode-telegram.git
-   cd opencode-telegram
+   git clone https://github.com/YOUR_USERNAME/opencode-orquestrator.git
+   cd opencode-orquestrator
    ```
 3. **Add the upstream remote**:
    ```bash
-   git remote add upstream https://github.com/huynle/opencode-telegram.git
+   git remote add upstream https://github.com/huynle/opencode-orquestrator.git
    ```
 
 ## Development Setup
@@ -229,7 +229,7 @@ Use the [Feature Request template](.github/ISSUE_TEMPLATE/feature_request.md) an
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/huynle/opencode-telegram/discussions) for questions
+- Open a [Discussion](https://github.com/huynle/opencode-orquestrator/discussions) for questions
 - Check existing issues before creating new ones
 - Join the community chat (if available)
 

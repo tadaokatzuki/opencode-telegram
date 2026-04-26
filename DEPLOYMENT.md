@@ -4,8 +4,8 @@
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/tadaokatzuki/opencode-telegram.git
-cd opencode-telegram
+git clone https://github.com/tadaokatzuki/opencode-orquestrator.git
+cd opencode-orquestrator
 npm install
 
 # 2. Configure .env
@@ -20,7 +20,7 @@ bun run start
 
 ### Option 1: Systemd Service (Recommended)
 
-Create `/etc/systemd/system/opencode-telegram.service`:
+Create `/etc/systemd/system/opencode-orquestrator.service`:
 
 ```ini
 [Unit]
@@ -30,9 +30,9 @@ After=network.target
 [Service]
 Type=simple
 User=youruser
-WorkingDirectory=/home/youruser/opencode-telegram
+WorkingDirectory=/home/youruser/opencode-orquestrator
 Environment="HOME=/home/youruser"
-ExecStart=/home/youruser/.bun/bin/bun run /home/youruser/opencode-telegram/src/index.ts
+ExecStart=/home/youruser/.bun/bin/bun run /home/youruser/opencode-orquestrator/src/index.ts
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -45,9 +45,9 @@ WantedBy=multi-user.target
 Then:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable opencode-telegram
-sudo systemctl start opencode-telegram
-sudo journalctl -u opencode-telegram -f
+sudo systemctl enable opencode-orquestrator
+sudo systemctl start opencode-orquestrator
+sudo journalctl -u opencode-orquestrator -f
 ```
 
 ### Option 2: Screen
@@ -62,7 +62,7 @@ bun run start
 
 ```bash
 npm install -g pm2
-pm2 start src/index.ts --name opencode-telegram
+pm2 start src/index.ts --name opencode-orquestrator
 pm2 save
 pm2 startup
 ```
@@ -98,10 +98,10 @@ pm2 startup
 ### Bot not responding
 ```bash
 # Check logs
-sudo journalctl -u opencode-telegram -n 100
+sudo journalctl -u opencode-orquestrator -n 100
 
 # Restart
-sudo systemctl restart opencode-telegram
+sudo systemctl restart opencode-orquestrator
 ```
 
 ### Port conflicts

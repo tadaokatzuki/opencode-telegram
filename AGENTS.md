@@ -51,6 +51,14 @@ Telegram bot y WhatsApp que gestiona instancias de OpenCode a través de forum t
 10. **Runtime shim** - Bun/Node cross-compatibility
 11. **Typecheck errors** - Fix cast types
 12. **topicIdIndex** - Optimización de búsquedas en api-server.ts
+13. **ParseInt precedence** - Arreglado operador en WhatsApp JID
+14. **userId types** - Soporta number y string para WhatsApp
+15. **Baileys migration** - Removido WA deprecated, printQRInTerminal
+16. **Connection state** - Removido 'failed' state de Baileys v6
+17. **Bun.memory()** - Try-catch en metrics
+18. **getMetricsText** - Ahora es async
+19. **QRCode import** - Usa default export
+20. **Type assertions** - response.json() con tipos
 
 ## Dependencias
 

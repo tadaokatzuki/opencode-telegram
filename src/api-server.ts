@@ -17,6 +17,7 @@ import { OpenCodeClient } from "./opencode/client"
 import { StreamHandler } from "./opencode/stream-handler"
 import type { TopicStore } from "./forum/topic-store"
 import { sanitizeError } from "./config"
+import { getMetricsText } from "./utils/metrics"
 import * as http from "http"
 import rt from "./runtime"
 
@@ -182,6 +183,16 @@ export class ApiServer {
         // No API key required for health and WhatsApp endpoints
         if (url.pathname === "/api/health" && req.method === "GET") {
           return this.handleHealth(corsHeaders)
+        }
+
+        if (url.pathname === "/metrics" && req.method === "GET") {
+          return new Response(await getMetricsText(), {
+            status: 200,
+            headers: {
+              "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
+              ...corsHeaders,
+            },
+          })
         }
 
         if (url.pathname.startsWith("/api/whatsapp/") && (req.method === "POST" || req.method === "GET")) {

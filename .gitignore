@@ -8,6 +8,9 @@ dist/
 # WhatsApp sessions (contains credentials)
 auth/
 
+# Local backups
+backups/
+
 # OpenCode project directories
 ~/oc-bot/
 

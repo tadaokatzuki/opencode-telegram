@@ -5,6 +5,7 @@
 import { spawn as nodeSpawn, execSync, ChildProcess } from "child_process"
 import * as fs from "fs"
 import * as http from "http"
+import * as path from "path"
 
 const isBun = typeof Bun !== "undefined"
 
@@ -54,19 +55,42 @@ function bunSpawnCommand(args: string[]): SpawnResult {
   }
 }
 
-interface ShellResult {
-  text(): Promise<string>
+function nodeExecSafe(args: string[], options?: { encoding?: string }): { stdout: string; exitCode: number } {
+  try {
+    const result = nodeSpawn(args[0], args.slice(1), {
+      encoding: options?.encoding || "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }) as any
+
+    let stdout = ""
+    let stderr = ""
+
+    if (result.stdout) {
+      result.stdout.on("data", (data: Buffer) => { stdout += data.toString() })
+    }
+    if (result.stderr) {
+      result.stderr.on("data", (data: Buffer) => { stderr += data.toString() })
+    }
+
+    const exitCode = result.exitCode
+    return { stdout, exitCode }
+  } catch (e: any) {
+    return { stdout: "", exitCode: e.status || 1 }
+  }
 }
 
-function nodeExec(str: string): ShellResult {
-  return {
-    text: async () => {
-      try {
-        return execSync(str, { encoding: "utf-8" }) as string
-      } catch (e: any) {
-        return e.stdout || ""
-      }
-    },
+function nodeExecQuietSafe(args: string[]): { stdout: any; exitCode: number } {
+  try {
+    const proc = nodeSpawn(args[0], args.slice(1), {
+      stdio: ["ignore", "ignore", "ignore"],
+    }) as any
+
+    return {
+      stdout: null,
+      exitCode: proc.exitCode || 0,
+    }
+  } catch (e: any) {
+    return { stdout: null, exitCode: e.status || 1 }
   }
 }
 
@@ -78,66 +102,97 @@ function nodeExecQuiet(): { stdout: any; exitCode: number; text: () => string } 
   }
 }
 
-function bunExec(str: string): ShellResult {
-  return Bun.$`${str}` as any
+function bunExec(str: string): { text: () => Promise<string> } {
+  return { text: async () => (Bun.$`${str}` as any).text() }
+}
+
+function bunExecQuiet(str: string): { exitCode: number } {
+  const proc = Bun.spawn(str.split(" ")) as any
+  return { exitCode: proc.exitCode || 0 }
 }
 
 export const $ = {
-  // Template string version: await $.text`command ${var}`
   async text(strings: TemplateStringsArray, ...values: any[]): Promise<string> {
     const cmd = String.raw({ raw: strings }, ...values)
     if (isBun) {
       return (await bunExec(cmd)).text()
     }
-    return (await nodeExec(cmd)).text()
+    const args = cmd.split(/\s+/)
+    return nodeExecSafe(args).stdout
   },
 
-  // Direct string version: await $("command")
   async textDirect(str: string): Promise<string> {
     if (isBun) {
       return (await bunExec(str)).text()
     }
-    return (await nodeExec(str)).text()
+    const args = str.split(/\s+/)
+    return nodeExecSafe(args).stdout
   },
 
   async quiet(strings: TemplateStringsArray, ...values: any[]): Promise<{ stdout: any; exitCode: number }> {
     const cmd = String.raw({ raw: strings }, ...values)
     if (isBun) {
       try {
-        const proc = Bun.spawn(cmd.split(" ")) as any
-        await proc.exited
-        return { stdout: null, exitCode: proc.exitCode }
+        const exitCode = bunExecQuiet(cmd).exitCode
+        return { stdout: null, exitCode }
       } catch {
         return { stdout: null, exitCode: 1 }
       }
     }
-    try {
-      execSync(cmd, { encoding: "utf-8", stdio: "ignore" })
-      return { stdout: null, exitCode: 0 }
-    } catch (e: any) {
-      return { stdout: e.stdout, exitCode: e.status || 1 }
-    }
+    const args = cmd.split(/\s+/)
+    return nodeExecQuietSafe(args)
   },
 
   async quietDirect(str: string): Promise<{ stdout: any; exitCode: number }> {
     if (isBun) {
       try {
-        const proc = Bun.spawn(str.split(" ")) as any
-        await proc.exited
-        return { stdout: null, exitCode: proc.exitCode }
+        const exitCode = bunExecQuiet(str).exitCode
+        return { stdout: null, exitCode }
       } catch {
         return { stdout: null, exitCode: 1 }
       }
     }
+    const args = str.split(/\s+/)
+    return nodeExecQuietSafe(args)
+  },
+
+  async listDir(dirPath: string): Promise<string[]> {
+    if (isBun) {
+      try {
+        const files = await Array.fromAsync(Bun.readdir(dirPath))
+        return files.map(f => typeof f === 'string' ? f : f.name)
+      } catch {
+        return []
+      }
+    }
     try {
-      execSync(str, { encoding: "utf-8", stdio: "ignore" })
-      return { stdout: null, exitCode: 0 }
-    } catch (e: any) {
-      return { stdout: e.stdout, exitCode: e.status || 1 }
+      const result = nodeExecSafe(["ls", "-1", dirPath])
+      return result.stdout.split('\n').filter(Boolean)
+    } catch {
+      return []
     }
   },
 
-  // Call as function: $(`command`) - returns text directly
+  async isDirectory(dirPath: string): Promise<boolean> {
+    if (isBun) {
+      try {
+        const stat = await Bun.stat(dirPath)
+        return stat.isDirectory()
+      } catch {
+        return false
+      }
+    }
+    const result = nodeExecQuietSafe(["test", "-d", dirPath])
+    return result.exitCode === 0
+  },
+
+  async exists(filePath: string): Promise<boolean> {
+    if (isBun) {
+      return Bun.file(filePath).exists()
+    }
+    return fs.existsSync(filePath)
+  },
+
   async call(str: string): Promise<string> {
     return this.textDirect(str)
   },

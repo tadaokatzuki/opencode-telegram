@@ -1759,8 +1759,7 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
 
     try {
       // Read the project base directory
-      const result = await rt.$.quietDirect(`ls -1 ${basePath} 2>/dev/null`)
-      const dirNames = (result.stdout || "").toString().trim().split('\n').filter(Boolean)
+      const dirNames = await rt.$.listDir(basePath)
 
       // Get all active sessions for cross-referencing
       const activeSessions = await getActiveSessions()
@@ -1770,8 +1769,8 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
         
         // Check if it's a directory
         try {
-          const isDir = await rt.$.quietDirect(`test -d ${fullPath}`)
-          if (isDir.exitCode !== 0) continue
+          const isDir = await rt.$.isDirectory(fullPath)
+        if (!isDir) continue
         } catch {
           continue
         }

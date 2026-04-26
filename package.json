@@ -2,7 +2,7 @@
   "name": "opencode-orquestrator",
   "version": "0.8.0",
   "type": "module",
-  "description": "Bot that orchestrates OpenCode via Telegram topics and WhatsApp groups",
+  "description": "Orchestrates multiple OpenCode instances via Telegram topics and WhatsApp groups",
   "author": "huynle",
   "license": "MIT",
   "repository": {

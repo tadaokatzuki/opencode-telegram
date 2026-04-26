@@ -1,7 +1,7 @@
-# AGENTS.md - OpenCode Telegram Bot
+# AGENTS.md - OpenCode Orquestrator
 
 ## Project
-Telegram bot que gestiona instancias de OpenCode a través de forum topics.
+Telegram bot y WhatsApp que gestiona instancias de OpenCode a través de forum topics y grupos.
 
 ## Tech Stack
 - **Runtime**: Bun v1.3+ / Node.js 20+ (runtime shim)

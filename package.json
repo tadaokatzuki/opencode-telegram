@@ -7,12 +7,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/huynle/opencode-orquestrator.git"
+    "url": "git+https://github.com/tadaokatzuki/opencode-orquestrator.git"
   },
   "bugs": {
-    "url": "https://github.com/huynle/opencode-orquestrator/issues"
+    "url": "https://github.com/tadaokatzuki/opencode-orquestrator/issues"
   },
-  "homepage": "https://github.com/huynle/opencode-orquestrator#readme",
+  "homepage": "https://github.com/tadaokatzuki/opencode-orquestrator#readme",
   "keywords": [
     "telegram",
     "whatsapp",
@@ -45,17 +45,22 @@
     "better-sqlite3": "^12.9.0",
     "bun": "^1.3.13",
     "grammy": "^1.42.0",
+    "protobufjs": "7.5.5",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0"
   },
-  "devDependencies": {
+"devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/bun": "^1.1.0",
     "adm-zip": "^0.5.17",
-    "esbuild": "^0.28.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
-    "unzip": "^0.1.11",
     "vitest": "^4.1.5"
+  },
+  "overrides": {
+    "protobufjs": "7.5.5",
+    "@whiskeysockets/libsignal-node>protobufjs": "7.5.5",
+    "@whiskeysockets/baileys>libsignal>protobufjs": "7.5.5"
   }
+}
 }

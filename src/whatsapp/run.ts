@@ -71,7 +71,8 @@ async function main() {
     }
 
     if (connection === "open") {
-      console.log("✅ Connected:", conn.user?.id || conn.user?.split("@")[0])
+      const userId = typeof conn.user?.id === 'string' ? conn.user.id.split("@")[0] : String(conn.user?.id)
+      console.log("✅ Connected:", userId)
       reconnectAttempts = 0
     }
 

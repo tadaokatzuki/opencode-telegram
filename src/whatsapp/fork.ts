@@ -23,7 +23,7 @@ const IS_BUN = typeof Bun !== "undefined"
 async function main() {
   console.log("═".repeat(50))
   console.log("   WhatsApp Bot (Forked to Node.js)")
-  console.log("═".repeat(50)))
+  console.log("═".repeat(50))
   console.log()
 
   if (!IS_BUN) {

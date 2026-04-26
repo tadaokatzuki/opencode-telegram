@@ -131,7 +131,7 @@ export interface ForumMessageContext {
   messageId: number
   chatId: number
   topicId: number                   // 0 for General topic
-  userId: number
+  userId: number | string           // number for Telegram, string for WhatsApp JID
   username?: string
   text: string
   replyToMessageId?: number

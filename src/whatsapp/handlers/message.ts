@@ -6,8 +6,6 @@
  */
 
 import type { WASocket } from "@whiskeysockets/baileys"
-import type { Message } from "@whiskeysockets/baileys/iobuffer"
-import { msgSourcePattern } from "@whiskeysockets/baileys/lib/Utils/generics"
 
 export interface ProcessedMessage {
   id: string
@@ -142,7 +140,7 @@ async function forwardToOrchestrator(conn: any, jid: string, text: string, msg: 
       body: JSON.stringify({ jid, text, messageKey }),
     })
     
-    const result = await response.json()
+    const result = await response.json() as { success?: boolean; error?: string }
     
     if (result.success) {
       // Message was queued - NO enviar ack aquí

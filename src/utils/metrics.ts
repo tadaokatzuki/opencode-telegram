@@ -118,10 +118,16 @@ let startTime = Date.now()
 export function updateMetrics(): void {
   registry.setGauge("opencode_uptime_seconds", Math.floor((Date.now() - startTime) / 1000), {})
   
-  if (typeof Bun !== "undefined" && Bun.memory) {
-    const memory = Bun.memory()
-    registry.setGauge("opencode_memory_bytes", Math.floor(memory.heapUsed), { type: "heap_used" })
-    registry.setGauge("opencode_memory_bytes", Math.floor(memory.heapTotal), { type: "heap_total" })
+  if (typeof Bun !== "undefined") {
+    try {
+      const memory = (Bun as any).memory?.()
+      if (memory) {
+        registry.setGauge("opencode_memory_bytes", Math.floor(memory.heapUsed), { type: "heap_used" })
+        registry.setGauge("opencode_memory_bytes", Math.floor(memory.heapTotal), { type: "heap_total" })
+      }
+    } catch {
+      // Bun.memory() not available
+    }
   }
 }
 
@@ -155,7 +161,7 @@ export function setActiveSessions(channel: "telegram" | "whatsapp", count: numbe
   updateMetrics()
 }
 
-export function getMetricsText(): string {
+export async function getMetricsText(): Promise<string> {
   updateMetrics()
   return registry.getMetrics()
 }

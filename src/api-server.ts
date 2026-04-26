@@ -300,7 +300,7 @@ export class ApiServer {
     )
   }
 
-  private handleWhatsApp(req: Request, headers: Record<string, string>, urlPath: string): Response {
+  private async handleWhatsApp(req: Request, headers: Record<string, string>, urlPath: string): Promise<Response> {
     const action = urlPath.split('/').pop() || ''
     
     if (action === 'send') {

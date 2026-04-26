@@ -11,7 +11,7 @@
 import { Bot, type Context } from "grammy"
 import type { AppConfig } from "./config"
 import { toManagerConfig, toTopicManagerConfig } from "./config"
-import { InstanceManager, type OrchestratorEvent, type InstanceInfo } from "./orchestrator"
+import { InstanceManager, type OpenCodeInstance, type OrchestratorEvent, type InstanceInfo } from "./orchestrator"
 import { TopicManager } from "./forum/topic-manager"
 import { TopicStore } from "./forum/topic-store"
 import { 
@@ -112,8 +112,14 @@ export interface IntegratedApp {
   /** Get instance for a topic */
   getInstance(topicId: number): InstanceInfo | null
   
-  /** Get OpenCode client for an instance */
-  getClient(instanceId: string): OpenCodeClient | undefined
+  /** Get client for an instance */
+  getClient(instanceId: string): any
+  
+  /** Send WhatsApp message */
+  sendWhatsAppMessage(jid: string, text: string): Promise<string>
+  
+  /** Set WhatsApp callback */
+  setSendWhatsAppCallback(callback: (jid: string, text: string, editKey?: any) => Promise<string>): void
 }
 
 // =============================================================================
@@ -2000,13 +2006,14 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
   // WhatsApp session to JID mapping
   const whatsappSessionToJid = new Map<string, string>()
 
-  let sendToWhatsAppCallback: ((jid: string, text: string) => Promise<string>) | null = null
+  let sendToWhatsAppCallback: ((jid: string, text: string, editKey?: any) => Promise<string>) | null = null
 
   // WhatsApp message handler - routes to topicManager
   async function handleWhatsAppMessage(jid: string, text: string, messageKey?: any): Promise<{ success: boolean; sessionId?: string; error?: string }> {
     try {
       // Calculate topicId from JID
-      const effectiveTopicId = Math.abs(parseInt(jid.replace(/\D/g, '') % 100000))
+      const topicIdNumeric = parseInt(jid.replace(/\D/g, ''))
+      const effectiveTopicId = topicIdNumeric % 100000
       
       // Create context for topicManager
       const context = {
@@ -2124,7 +2131,7 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
       console.log("[Integration] Application stopped")
     },
 
-    getInstance(topicId: number) {
+    getInstance(topicId: number): InstanceInfo | null {
       return instanceManager.getInstanceByTopic(topicId)
     },
 
@@ -2145,13 +2152,17 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
       try {
         console.log(`[Integration] WhatsApp message to ${jid}: ${text.slice(0, 50)}...`)
         
-        const effectiveTopicId = Math.abs(parseInt(jid.replace(/\D/g, '') % 100000))
+        const topicIdNumeric = parseInt(jid.replace(/\D/g, ''))
+        const effectiveTopicId = topicIdNumeric % 100000
         
         const result = await topicManager.routeMessage({
+          messageId: 0,
           chatId,
           topicId: effectiveTopicId,
           text,
           userId: jid,
+          isGeneralTopic: false,
+          isReply: false,
         })
         
         if (!result.success) {
@@ -2163,13 +2174,6 @@ export async function createIntegratedApp(config: AppConfig): Promise<Integrated
         console.error(`[Integration] WhatsApp error: ${e}`)
         throw e
       }
-    },
-
-    // Register WhatsApp callback for a specific JID
-    registerWhatsAppCallback(jid: string, callback: (text: string) => Promise<string>) {
-      // Store in the map we created above
-      console.log(`[Integration] Registered WhatsApp callback for ${jid}`)
-      // Note: This won't persist - need to make it work differently
     },
   }
 }

@@ -5,7 +5,7 @@
  * Stores credentials in JSON files for session persistence.
  */
 
-import { useMultiFileAuthState, WA } from "@whiskeysockets/baileys"
+import { useMultiFileAuthState } from "@whiskeysockets/baileys"
 import type { AuthenticationCreds, AuthenticationState } from "@whiskeysockets/baileys"
 import * as fs from "fs"
 import * as path from "path"

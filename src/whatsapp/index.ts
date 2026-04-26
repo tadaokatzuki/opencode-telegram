@@ -24,7 +24,7 @@ async function main() {
 
   try {
     client = await createWhatsAppClient({
-      printQRInTerminal: true,
+      // printQRInTerminal removed - handled internally
     })
   } catch (error) {
     console.error("\n[Error] Failed to initialize WhatsApp client:")

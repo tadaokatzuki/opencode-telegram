@@ -55,10 +55,9 @@ function bunSpawnCommand(args: string[]): SpawnResult {
   }
 }
 
-function nodeExecSafe(args: string[], options?: { encoding?: string }): { stdout: string; exitCode: number } {
+function nodeExecSafe(args: string[]): { stdout: string; exitCode: number } {
   try {
     const result = nodeSpawn(args[0], args.slice(1), {
-      encoding: options?.encoding || "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
     }) as any
 
@@ -159,8 +158,8 @@ export const $ = {
   async listDir(dirPath: string): Promise<string[]> {
     if (isBun) {
       try {
-        const files = await Array.fromAsync(Bun.readdir(dirPath))
-        return files.map(f => typeof f === 'string' ? f : f.name)
+        const files = await (Bun as any).readdir(dirPath)
+        return Array.from(files).map((f: any) => typeof f === 'string' ? f : f.name)
       } catch {
         return []
       }
@@ -176,7 +175,7 @@ export const $ = {
   async isDirectory(dirPath: string): Promise<boolean> {
     if (isBun) {
       try {
-        const stat = await Bun.stat(dirPath)
+        const stat = await (Bun as any).stat(dirPath)
         return stat.isDirectory()
       } catch {
         return false

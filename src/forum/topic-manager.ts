@@ -234,6 +234,11 @@ export class TopicManager {
     let mapping = this.store.getMapping(chatId, effectiveTopicId)
     let isNewSession = false
 
+    // Handle WhatsApp JIDs - convert to numeric ID for storage
+    const numericUserId = typeof userId === 'string' 
+      ? parseInt(userId.replace(/\D/g, '')) || 0 
+      : userId
+
     if (!mapping) {
       // First message in this topic - create mapping
       console.log(`[TopicManager] No mapping found, creating session for topic ${effectiveTopicId}`)
@@ -254,7 +259,7 @@ export class TopicManager {
           effectiveTopicId,
           topicName,
           session.id,
-          { creatorUserId: userId }
+          { creatorUserId: numericUserId }
         )
 
         if (!result.success || !result.mapping) {
@@ -296,7 +301,7 @@ export class TopicManager {
     try {
       // Record the message in stats
       this.store.recordMessage(chatId, effectiveTopicId)
-      this.store.logEvent(chatId, effectiveTopicId, "message", userId)
+      this.store.logEvent(chatId, effectiveTopicId, "message", numericUserId)
 
       // Send to OpenCode
       await this.opencode.sendMessage(mapping.sessionId, text)

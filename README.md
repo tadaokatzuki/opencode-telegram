@@ -24,7 +24,7 @@ A bot that orchestrates multiple [OpenCode](https://opencode.ai) instances throu
 - **Debug Topic**: Separate topic for debug/process logs
 - **Bun/Node Runtime**: Works on both Bun and Node.js via runtime shim
 - **Security**: Path validation, rate limiting, sanitized inputs
-- **Test Suite**: 76 tests with vitest
+- **Test Suite**: 139 tests with vitest
 
 ## Table of Contents
 
@@ -711,7 +711,7 @@ git push origin feature/nueva-caracteristica
 
 - Bun v1.0+ (el proyecto usa runtime shim para Bun/Node)
 - TypeScript.strict enabled
-- 76 tests passing
+- 139 tests passing
 
 ### Comandos de Desarrollo
 
@@ -733,7 +733,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ### Autor y Mantenedor
 
 - **Forked from**: Original project by [@huynle](https://github.com/huynle)
-- **Current version**: v0.8.0 - WhatsApp integration added
+- **Current version**: v0.8.0 - WhatsApp integration, Prometheus metrics
 
 ### Librerías y Dependencias
 

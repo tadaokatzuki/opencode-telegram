@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.8.0] - 2026-04-25
+
+### Added
+
+- **Prometheus metrics endpoint** - `/metrics` endpoint for monitoring:
+  - Messages, errors, sessions counters
+  - Active sessions, uptime, memory gauges
+  - Telegram API call tracking
+
+### Security
+
+- Removed `whatsapp.backup/` directory with sensitive logging
+- Fixed stack trace exposure in API responses
+- Added `sanitizeError()` function for safe error messages
+- Command injection prevention with safe argument arrays
+
+### Tests
+
+- Added `sanitizeError` unit tests (19 tests)
+- Added `metrics` unit tests (10 tests)
+- Total: 139 tests passing
+
+---
+
 ## [0.8.1] - 2026-04-24
 
 ### Added
@@ -27,7 +51,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Tests
 
-- Added 3 new tests for API server integration (186 total tests passing)
+- Added 3 new tests for API server integration (139 total tests passing)
 
 ---
 

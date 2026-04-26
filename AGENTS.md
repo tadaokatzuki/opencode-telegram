@@ -7,11 +7,11 @@ Telegram bot y WhatsApp que gestiona instancias de OpenCode a través de forum t
 - **Runtime**: Bun v1.3+ / Node.js 20+ (runtime shim)
 - **Language**: TypeScript
 - **Bot Framework**: Grammy v1.42
-- **Testing**: Vitest (186 tests)
+- **Testing**: Vitest (139 tests)
 - **Database**: bun:sqlite (WAL mode)
 
 ## Version
-**Current: v0.8.1**
+**Current: v0.8.0**
 
 ## New Modules (src/core/)
 
@@ -31,7 +31,7 @@ Telegram bot y WhatsApp que gestiona instancias de OpenCode a través de forum t
    - Client↔session↔topic tracking
    - Graceful cleanup on shutdown
 
-## Performance (v0.8.1)
+## Performance (v0.8.0)
 
 - **topicIdIndex** - Secondary Map index for O(1) topicId lookups in api-server.ts:
   - `isExternalTopic()`: O(n) → O(1)
@@ -56,7 +56,7 @@ Telegram bot y WhatsApp que gestiona instancias de OpenCode a través de forum t
 
 - grammy: ^1.42.0
 - typescript: ^6.0.3
-- vitest: ^4.1.4
+- vitest: ^4.1.5
 - @types/bun: ^1.1.0
 
 ## Scripts
@@ -66,7 +66,7 @@ npm install           # Instalar deps (para Termux)
 bun install          # Instalar deps (Bun)
 bun run dev          # Desarrollo con hot reload
 bun run start        # Producción
-bun test             # Tests (186 tests)
+bun test             # Tests (139 tests)
 bun run typecheck   # Verificar tipos
 bun run coverage    # Tests con coverage
 ```

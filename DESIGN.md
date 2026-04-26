@@ -1,5 +1,15 @@
 # OpenCode Orquestrator - Documentación de Diseño (v0.8.0)
 
+## Tabla de Contenidos
+
+1. [Arquitectura General](#1-arquitectura-general-con-whatsapp)
+2. [Canales de Comunicación](#2-canales-de-comunicación)
+3. [Flujo de Mensajes](#3-flujo-de-mensajes-actualizado)
+4. [ADRs](#appendix-adrs-architecture-decision-records)
+5. [Mermaid Diagram](#appendix-mermaid-diagram)
+6. [Non-Functional Requirements](#appendix-non-functional-requirements)
+7. [Future Considerations](#appendix-future-considerations)
+
 ## 1. Arquitectura General (con WhatsApp)
 
 ```
@@ -786,4 +796,237 @@ const server = rt.serve({ port: 4200, fetch: handler })
 
 ---
 
-*Documento generado automáticamente - v0.7.5*
+*Documento generado automáticamente - v0.8.0*
+
+---
+
+## Appendix: ADRs (Architecture Decision Records)
+
+### ADR-001: Runtime Shim para Bun/Node Compatibility
+
+**Status:** Aceptado  
+**Date:** 2026-04-19
+
+**Context:**  
+El bot debe funcionar tanto en Bun como en Node.js debido a limitaciones de algunas plataformas (ej: Termux).
+
+**Decision:**  
+Implementar un runtime shim (`runtime.ts`) que detecte el runtime y provea APIs compatibles.
+
+**Consequences:**
+- ✅ Portabilidad entre Bun y Node.js
+- ❌ Añade complejidad al código
+- ❌ Algunas APIs de Bun no disponibles en Node.js (ej: `Bun.memory()`)
+
+---
+
+### ADR-002: WhatsApp via Baileys con Fork Process
+
+**Status:** Aceptado  
+**Date:** 2026-04-23
+
+**Context:**  
+Bun no soporta WebSocket nativo, necesario para Baileys (WhatsApp).
+
+**Decision:**  
+Ejecutar WhatsApp en un proceso Node.js separado, comunicándose via HTTP al proceso principal.
+
+**Consequences:**
+- ✅ WhatsApp funcional en entorno Bun
+- ✅ Separación de concerns
+- ❌ Mayor complejidad de deployment
+- ❌ Latencia adicional en mensajes WhatsApp
+
+---
+
+### ADR-003: SSE (Server-Sent Events) para Streaming
+
+**Status:** Aceptado  
+**Date:** 2026-04-20
+
+**Context:**  
+OpenCode provee respuestas como streaming SSE. Necesitamos reenviar estas respuestas a Telegram.
+
+**Decision:**  
+- Conectar SSE endpoint de OpenCode
+- Parsear eventos y enviarlos a Telegram como mensajes editables
+- Usar throttling para evitar flooding de Telegram API
+
+**Consequences:**
+- ✅ Experiencia de usuario fluida con respuestas en tiempo real
+- ✅ Editar mensajes reduce clutter en Telegram
+- ❌ Complejidad en manejo de estado de streaming
+- ❌ Rate limits de Telegram API restrictivos
+
+---
+
+### ADR-004: Path Traversal Prevention
+
+**Status:** Aceptado  
+**Date:** 2026-04-20
+
+**Context:**  
+Usuarios pueden especificar directorios de trabajo. Riesgo de path traversal.
+
+**Decision:**  
+Validar paths con:
+1. Decode URI components
+2. Check for null bytes
+3. Block `..` traversal
+4. Block sensitive system paths
+5. Restringir a base path configurado
+
+**Consequences:**
+- ✅ Seguridad contra path traversal
+- ✅ No impact en performance
+- ❌ Complejidad adicional en validation
+
+---
+
+### ADR-005: SQLite para Estado Persistente
+
+**Status:** Aceptado  
+**Date:** 2026-04-19
+
+**Context:**  
+Necesitamos persistir mappings topic→session entre reinicios del bot.
+
+**Decision:**  
+Usar SQLite con WAL mode para:
+- Topic mappings
+- Session state
+- Port allocation tracking
+
+**Consequences:**
+- ✅ Persistencia simple y confiable
+- ✅ Transactions ACID
+- ✅ Bajo overhead
+- ❌ No مناسب para multi-instance sin configuración adicional
+- ❌ SQLite en red requiere setup especial
+
+---
+
+## Appendix: Mermaid Diagram
+
+```mermaid
+graph TB
+    subgraph Users["Users"]
+        TG[Telegram User]
+        WA[WhatsApp User]
+    end
+
+    subgraph Channels["Communication Channels"]
+        subgraph Telegram["Telegram Bot (grammY)"]
+            TG_API[Telegram API]
+            Commands[Commands Handler]
+            Callbacks[Callback Handlers]
+        end
+
+        subgraph WhatsApp["WhatsApp (Baileys)"]
+            WA_Client[Baileys Client]
+            WA_Node[Node.js Process]
+        end
+    end
+
+    subgraph Core["Integration Layer"]
+        IL[Integration Layer]
+        TM[Topic Manager]
+        SH[Stream Handler]
+        API_S[API Server :4200]
+    end
+
+    subgraph Orchestrator["Orchestrator"]
+        OM[Orchestrator Manager]
+        IM[Instance Manager]
+        PP[Port Pool 4100-4199]
+    end
+
+    subgraph OpenCode["OpenCode Instances"]
+        OC1[Instance #1 :4100]
+        OC2[Instance #2 :4101]
+        OCn[Instance #N :410N]
+    end
+
+    TG -->|Messages| TG_API
+    WA -->|Messages| WA_Client
+    WA_Client -->|WebSocket| WA_Node
+    WA_Node -->|HTTP POST| IL
+
+    TG_API --> Commands
+    TG_API --> Callbacks
+    Commands --> IL
+    Callbacks --> IL
+
+    IL --> TM
+    IL --> SH
+    IL --> API_S
+    IL --> OM
+
+    OM --> IM
+    IM --> PP
+    IM --> OC1
+    IM --> OC2
+    IM --> OCn
+
+    OC1 -->|SSE| SH
+    OC2 -->|SSE| SH
+    OCn -->|SSE| SH
+
+    SH -->|Edit Messages| TG_API
+    SH -->|Send Message| WA_Node
+```
+
+---
+
+## Appendix: Non-Functional Requirements
+
+### Performance
+| Metric | Target | Current Status |
+|--------|--------|----------------|
+| Message latency | < 2s | ✅ ~1-3s depending on OpenCode |
+| Memory usage | < 512MB | ✅ ~100-200MB typical |
+| Concurrent sessions | 20 max | ✅ Configurable |
+| API response time | < 100ms | ✅ < 50ms typical |
+
+### Scalability
+| Scenario | Strategy |
+|----------|----------|
+| > 20 sessions | Consider horizontal scaling |
+| Multi-instance deployment | Shared SQLite or migrate to PostgreSQL |
+| High message volume | Rate limiting + message queuing |
+
+### Security
+| Requirement | Implementation |
+|-------------|----------------|
+| Path traversal prevention | Validation + blocked paths |
+| Secret management | Environment variables only |
+| API authentication | HMAC key comparison |
+| Rate limiting | Token bucket algorithm |
+
+### Reliability
+| Requirement | Implementation |
+|-------------|----------------|
+| Crash recovery | Auto-restart instances |
+| Session persistence | SQLite WAL mode |
+| Health checks | Periodic port probing |
+
+---
+
+## Appendix: Future Considerations
+
+### Potential Improvements
+
+1. **Multi-instance coordination** - Redis pub/sub para estado compartido
+2. **Message queue** - Para handling asíncrono de alta carga
+3. **Metrics centralizado** - Push a Prometheus/Grafana Cloud
+4. **Tracing distribuido** - OpenTelemetry para debugging
+5. **Plugin system** - Extensibilidad para nuevos canales
+
+### Scale Limits
+
+| Resource | Current Limit | Mitigation |
+|----------|---------------|------------|
+| Sessions | 20 concurrent | Horizontal scaling |
+| Messages | 60/5min per user | Rate limiting |
+| OpenCode instances | 100 port pool | Add more ports |
+| Database | Single SQLite | Migrate to PostgreSQL |

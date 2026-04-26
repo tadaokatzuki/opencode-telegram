@@ -326,7 +326,7 @@ export class ApiServer {
         const result = await this.whatsappMessageHandler(jid, text, messageKey)
         return this.jsonResponse(result, 200, headers)
       } catch (e) {
-        return this.jsonResponse({ error: String(e) }, 500, headers)
+        return this.jsonResponse({ error: "Internal server error" }, 500, headers)
       }
     } catch (error) {
       return this.jsonResponse({ error: sanitizeError(error) }, 400, headers)
@@ -349,7 +349,7 @@ export class ApiServer {
       const info = await this.whatsappGroupCallback(jid)
       return this.jsonResponse(info, 200, headers)
     } catch (e) {
-      return this.jsonResponse({ error: String(e) }, 500, headers)
+      return this.jsonResponse({ error: "Internal server error" }, 500, headers)
     }
   }
 

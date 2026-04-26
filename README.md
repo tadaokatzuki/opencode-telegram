@@ -732,47 +732,26 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Autor y Mantenedor
 
-- ** forked from**: Original project by [@huynle](https://github.com/huynle)
-- ** current version**: v0.6.0 - Enhanced with new features
+- **Forked from**: Original project by [@huynle](https://github.com/huynle)
+- **Current version**: v0.8.0 - WhatsApp integration added
 
 ### Librerías y Dependencias
 
-| Librería                                                     | Uso                   | Licencia   |
-|--------------------------------------------------------------|-----------------------|------------|
-| [grammY](https://grammy.dev/)                                | Bot de Telegram       | MIT        |
-| [Bun](https://bun.sh/)                                       | Runtime de JavaScript | GPL-3.0    |
-| [TypeScript](https://www.typescriptlang.org/)                | Type checking         | Apache 2.0 |
-| [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | Base de datos local   | MIT        |
-| [undici](https://undici.nodejs.org/)                         | Cliente HTTP/Fetch    | MIT        |
+| Librería | Uso | Licencia |
+|----------|-----|----------|
+| [grammY](https://grammy.dev/) | Bot de Telegram | MIT |
+| [Bun](https://bun.sh/) | Runtime de JavaScript | GPL-3.0 |
+| [TypeScript](https://www.typescriptlang.org/) | Type checking | Apache 2.0 |
+| [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | Base de datos local | MIT |
+| [Baileys](https://github.com/WhiskeySockets/Baileys) | WhatsApp client | MIT |
+| [qrcode](https://www.npmjs.com/package/qrcode) | QR code generation | MIT |
 
-### Proyectos de Referencia (Inspiración)
+### Gracias a / Thanks to
 
-| Proyecto                                                                                      | Descripción                                              | Relevante para             |
-|-----------------------------------------------------------------------------------------------|----------------------------------------------------------|----------------------------|
-| [grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot)               | Bot avanzado con scheduled tasks, voice, model switching | ✅ Scheduled tasks        |
-| [HNGM-HP/opencode-bridge](https://github.com/HNGM-HP/opencode-bridge)                         | Bridge multi-plataforma (Telegram, Discord, WeCom, etc.) | ✅ Features empresariales |
-| [tommertom/opencode-telegram](https://github.com/Tommertom/opencode-telegram)                 | Terminal PTY interactivo                                 | ❌ No comparable          |
-| [tommertom/opencoder-telegram-plugin](https://github.com/Tommertom/opencoder-telegram-plugin) | Plugin de notificaciones OpenCode                        | ❌ No comparable          |
-
----
-
-## Resumen de Modificaciones
-
-### Nuevas Features Agregadas
-
-- 🏠 **Forum Topics** - Múltiples proyectos en un solo chat
-- 🔄 **Auto-retry** - Reintento automático con exponential backoff (3 intentos)
-- 📊 **Métricas** - Comando `/stats` para ver usage
-- 📝 **Logging** - timestamps y logging estructurado
-- 📢 **Alertas** - Notificaciones de errores a Telegram
-- 💬 **Responder a mensajes simples** - Bienvenida automática en General topic
-
-### Comandos Nuevos
-
-| Comando  | Descripción                  |
-|----------|------------------------------|
-| `/stats` | Ver métricas del bot         |
-| `/help`  | Ayuda con todos los comandos |
+- [OpenCode](https://opencode.ai) - For the amazing CLI tool
+- [@huynle](https://github.com/huynle) - For the original telegram integration
+- [WhiskeySockets](https://github.com/WhiskeySockets) - For Baileys library
+- All contributors and testers
 
 ---
 

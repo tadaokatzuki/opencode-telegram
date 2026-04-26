@@ -17,7 +17,7 @@ import { OpenCodeClient } from "./opencode/client"
 import { StreamHandler } from "./opencode/stream-handler"
 import type { TopicStore } from "./forum/topic-store"
 import { sanitizeError } from "./config"
-import { getMetricsText } from "./utils/metrics"
+import { getMetricsText, recordRequestDuration } from "./utils/metrics"
 import * as http from "http"
 import rt from "./runtime"
 
@@ -155,6 +155,7 @@ export class ApiServer {
     this.server = rt.serve({
       port,
       fetch: async (req) => {
+        const startTime = Date.now()
         const url = new URL(req.url)
 
         // Build CORS headers based on configuration

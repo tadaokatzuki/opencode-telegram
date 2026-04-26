@@ -1,0 +1,125 @@
+{
+  "dashboard": {
+    "title": "OpenCode Orquestrator",
+    "uid": "opencode-orquestrator",
+    "version": 1,
+    "panels": [
+      {
+        "title": "Messages Processed",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(opencode_messages_total[5m])",
+            "legendFormat": "{{channel}} - {{status}}"
+          }
+        ]
+      },
+      {
+        "title": "Error Rate",
+        "type": "gauge",
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(opencode_errors_total[5m]) / rate(opencode_messages_total[5m]) * 100"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 1 },
+                { "color": "red", "value": 5 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Active Sessions",
+        "type": "stat",
+        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+        "targets": [
+          {
+            "expr": "opencode_active_sessions",
+            "legendFormat": "{{channel}}"
+          }
+        ]
+      },
+      {
+        "title": "Request Duration (P95)",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(opencode_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(opencode_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "P50"
+          }
+        ],
+        "yAxes": [{ "unit": "s" }]
+      },
+      {
+        "title": "Memory Usage",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "expr": "opencode_memory_bytes{type=\"heap_used\"}",
+            "legendFormat": "Heap Used"
+          },
+          {
+            "expr": "opencode_memory_bytes{type=\"heap_total\"}",
+            "legendFormat": "Heap Total"
+          }
+        ],
+        "yAxes": [{ "unit": "bytes" }]
+      },
+      {
+        "title": "Telegram API Calls",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+        "targets": [
+          {
+            "expr": "rate(opencode_telegram_api_calls_total[5m])",
+            "legendFormat": "{{method}} - {{status}}"
+          }
+        ]
+      },
+      {
+        "title": "Sessions Created",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+        "targets": [
+          {
+            "expr": "rate(opencode_sessions_total[5m])",
+            "legendFormat": "{{channel}}"
+          }
+        ]
+      },
+      {
+        "title": "Uptime",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 24 },
+        "targets": [
+          {
+            "expr": "opencode_uptime_seconds"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
+      }
+    ],
+    "refresh": "10s",
+    "schemaVersion": 27,
+    "version": 1
+  }
+}

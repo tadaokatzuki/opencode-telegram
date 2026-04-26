@@ -1,0 +1,351 @@
+## Appendix: OpenAPI Specification
+
+```yaml
+openapi: "3.1.0"
+info:
+  title: OpenCode Orquestrator API
+  version: "1.0.0"
+  description: |
+    API for managing OpenCode instances via Telegram topics and WhatsApp.
+    Used by OpenCode plugin for bidirectional communication.
+
+servers:
+  - url: http://localhost:4200
+    description: Local development
+
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      tags: [System]
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      operationId: getMetrics
+      tags: [Monitoring]
+      responses:
+        "200":
+          description: Metrics in Prometheus format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/whatsapp/send:
+    post:
+      summary: Send WhatsApp message
+      operationId: sendWhatsAppMessage
+      tags: [WhatsApp]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WhatsAppSendRequest"
+      responses:
+        "200":
+          description: Message sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsAppSendResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/whatsapp/group:
+    get:
+      summary: Get WhatsApp group info
+      operationId: getWhatsAppGroup
+      tags: [WhatsApp]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: jid
+          in: query
+          required: true
+          schema:
+            type: string
+          description: WhatsApp group JID
+      responses:
+        "200":
+          description: Group information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsAppGroupResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/whatsapp/health:
+    get:
+      summary: WhatsApp service health
+      operationId: getWhatsAppHealth
+      tags: [WhatsApp]
+      responses:
+        "200":
+          description: WhatsApp service is healthy
+
+  /api/register:
+    post:
+      summary: Register external OpenCode instance
+      operationId: registerInstance
+      tags: [Instances]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "200":
+          description: Instance registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "503":
+          description: Server not configured
+
+  /api/unregister:
+    post:
+      summary: Unregister OpenCode instance
+      operationId: unregisterInstance
+      tags: [Instances]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnregisterRequest"
+      responses:
+        "200":
+          description: Instance unregistered
+
+  /api/status/{sessionId}:
+    get:
+      summary: Get session status
+      operationId: getSessionStatus
+      tags: [Instances]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/instances:
+    get:
+      summary: List all instances
+      operationId: listInstances
+      tags: [Instances]
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: List of instances
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instances:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InstanceInfo"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        externalInstances:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+
+    WhatsAppSendRequest:
+      type: object
+      required:
+        - jid
+        - text
+      properties:
+        jid:
+          type: string
+          description: WhatsApp JID (phone number or group ID)
+        text:
+          type: string
+          description: Message text
+        messageKey:
+          type: object
+          description: Message key for editing
+
+    WhatsAppSendResponse:
+      type: object
+      properties:
+        messageId:
+          type: string
+
+    WhatsAppGroupResponse:
+      type: object
+      properties:
+        jid:
+          type: string
+        name:
+          type: string
+        participants:
+          type: integer
+
+    RegisterRequest:
+      type: object
+      required:
+        - sessionId
+        - workDir
+        - topicId
+        - opencodePort
+      properties:
+        sessionId:
+          type: string
+          description: Unique session identifier
+        workDir:
+          type: string
+          description: Working directory for the session
+        topicId:
+          type: integer
+          description: Telegram topic ID
+        opencodePort:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: Port where OpenCode is serving
+
+    RegisterResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        sessionUrl:
+          type: string
+          format: uri
+          description: URL to send events to
+
+    UnregisterRequest:
+      type: object
+      required:
+        - sessionId
+      properties:
+        sessionId:
+          type: string
+
+    SessionStatus:
+      type: object
+      properties:
+        sessionId:
+          type: string
+        workDir:
+          type: string
+        topicId:
+          type: integer
+        port:
+          type: integer
+        status:
+          type: string
+          enum: [active, idle, closed]
+        connectedAt:
+          type: string
+          format: date-time
+
+    InstanceInfo:
+      type: object
+      properties:
+        sessionId:
+          type: string
+        port:
+          type: integer
+        workDir:
+          type: string
+        topicId:
+          type: integer
+        status:
+          type: string
+
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        error:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"

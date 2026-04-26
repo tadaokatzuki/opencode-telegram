@@ -9,6 +9,8 @@
 5. [Mermaid Diagram](#appendix-mermaid-diagram)
 6. [Non-Functional Requirements](#appendix-non-functional-requirements)
 7. [Future Considerations](#appendix-future-considerations)
+8. [API Reference](#appendix-openapi-specification)
+9. [Database Schema](#appendix-database-schema)
 
 ## 1. Arquitectura General (con WhatsApp)
 
@@ -1030,3 +1032,63 @@ graph TB
 | Messages | 60/5min per user | Rate limiting |
 | OpenCode instances | 100 port pool | Add more ports |
 | Database | Single SQLite | Migrate to PostgreSQL |
+
+---
+
+## Appendix: OpenAPI Specification
+
+Ver documento completo en: [docs/openapi.yaml](docs/openapi.yaml)
+
+**Endpoints principales:**
+
+| Method | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check |
+| GET | `/metrics` | Prometheus metrics |
+| POST | `/api/whatsapp/send` | Enviar mensaje WhatsApp |
+| GET | `/api/whatsapp/group?jid=` | Info de grupo WhatsApp |
+| POST | `/api/register` | Registrar instancia externa |
+| POST | `/api/unregister` | Desregistrar instancia |
+| GET | `/api/status/{sessionId}` | Estado de sesión |
+| GET | `/api/instances` | Listar instancias |
+
+**Authentication:** Header `X-API-Key` con API key configurada.
+
+**Error Responses:** RFC 7807 Problem Details format.
+
+---
+
+## Appendix: Database Schema
+
+Ver documento completo en: [docs/database-schema.md](docs/database-schema.md)
+
+**Bases de datos:**
+
+| Database | Uso | Tablas principales |
+|----------|-----|-------------------|
+| `topics.db` | Topic → Session mappings | `topic_mappings`, `external_instances` |
+| `orchestrator.db` | Estado del orquestador | `port_pool`, `sessions` |
+
+**Índices creados:**
+
+```sql
+-- Topic mappings
+CREATE INDEX idx_topic_mappings_chat_id ON topic_mappings(chat_id);
+CREATE INDEX idx_topic_mappings_status ON topic_mappings(status);
+
+-- Sessions
+CREATE INDEX idx_sessions_chat_id ON sessions(chat_id);
+CREATE INDEX idx_sessions_status ON sessions(status);
+
+-- External instances
+CREATE INDEX idx_external_topic_id ON external_instances(topic_id);
+```
+
+**Relaciones:**
+
+```mermaid
+erDiagram
+    topic_mappings ||--o| sessions : "references"
+    sessions ||--o| port_pool : "allocates"
+    external_instances ||--o| topic_mappings : "links via topic_id"
+```
